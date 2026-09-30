@@ -1,0 +1,18 @@
+# Danh sach thu vien cho du an timesheet
+# Cai bang lenh:  pip install -r requirements.txt
+
+# Doc ghi file Excel .xlsx
+openpyxl==3.1.5
+
+# Bot Telegram
+python-telegram-bot~=22.0
+
+# Goi AI Gemini (SDK chinh thuc cua Google)
+google-genai~=1.0
+
+# Doc file cau hinh secrets.env (noi giu mat khau, tach khoi code)
+python-dotenv~=1.0
+
+# Fetch va parse trang web MOM de lay lich Public Holiday Singapore
+requests~=2.31
+beautifulsoup4~=4.12

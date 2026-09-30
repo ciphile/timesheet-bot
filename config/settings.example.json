@@ -1,0 +1,67 @@
+{
+  "employee_name": "Ho Ten Cua Ban",
+  "signature_name": "TenBan",
+  "boss_name": "TenSep",
+  "boss_email": "email.rieng.cua.ban@gmail.com",
+  "bcc_email": "ten.ban@congty.com",
+  "hours_per_day": 8,
+  "task_names": [
+    "Coding/UT",
+    "UAT support",
+    "Investigation/ Assessment",
+    "Issue Investigation",
+    "Prod support/DFU",
+    "Public Holiday",
+    "Annual Leave",
+    "Special Leave"
+  ],
+  "leave_task_names": [
+    "Public Holiday",
+    "Annual Leave",
+    "Special Leave"
+  ],
+  "jira_required_task_names": [
+    "UAT support"
+  ],
+  "jira_required_keywords": [
+    "DFU"
+  ],
+  "default_new_product_description": "New product day 2 items",
+  "month_names": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "June",
+    "July",
+    "Aug",
+    "Sept",
+    "Oct",
+    "Nov",
+    "Dec"
+  ],
+  "file_name_pattern": "LiveReport {file_month}_{file_year} -TenBan ({send_day} {send_month}).xlsx",
+  "email_subject_pattern": "Timesheet up to {send_day_ordinal} {send_month}",
+  "email_body_lines": [
+    "Hi {boss_name}",
+    "",
+    "Please find attached timesheet up to {send_day} {send_month}",
+    "",
+    "Thanks",
+    "Regards",
+    "{signature_name}"
+  ],
+  "special_leave_note_pattern": "Please note I took a day of special leave on {sl_day} {sl_month}, in lieu of the public holiday which fell on Saturday {ph_date}.",
+  "telegram_success_message": "Timesheet đã gởi email cho sếp bự thành công",
+  "gemini_model": "auto",
+  "ai_calls_per_month": 250,
+  "smtp_host": "smtp.gmail.com",
+  "smtp_port": 587,
+  "mom_holidays_url": "https://www.mom.gov.sg/employment-practices/public-holidays",
+  "bot_stop_time": "23:59",
+  "company_email": "ten.ban@congty.com",
+  "company_display_name": "Ten Cua Ban",
+  "company_mail_host": "mail.congty.com",
+  "bcc_when_company": "email.rieng.cua.ban@gmail.com"
+}
