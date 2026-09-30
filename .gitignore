@@ -1,0 +1,14 @@
+# ==== KHONG BAO GIO dua len Git: thong tin rieng + du lieu ca nhan ====
+config/settings.json
+config/secrets.env
+*.env
+data/
+output/
+backup/
+*.log
+*.jsonl
+__pycache__/
+*.pyc
+# File Excel do bot tao (chi giu file mau trong template/)
+*.xlsx
+!template/master_template.xlsx
