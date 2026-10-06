@@ -203,7 +203,7 @@ def _system_block(config, state: dict, today: date) -> list[str]:
     import notes_store
     from config_loader import CORRUPT_DIR, PARSED_SNAPSHOT_DIR
     lines = ["⚙️ HỆ THỐNG"]
-    if state.get("mail_mode") == "personal":
+    if state.get("mail_mode") == "personal" and getattr(config, "gmail_ok", True):
         lines.append("Gửi mail bằng: GMAIL CÁ NHÂN (Bcc mail công ty) · "
                      "/personalmailoff để về mail công ty")
     else:

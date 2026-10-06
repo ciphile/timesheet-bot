@@ -142,7 +142,8 @@ def _desc_lines(text: str, col_width) -> int:
 # chữ Microsoft Sans Serif 8pt (dòng thật ~10pt, ~47 ký tự) hàng cao gấp ~1,5
 # lần chữ, thừa khoảng trắng trên/dưới. Chỉnh 2 hệ số dưới nếu cần tinh chỉnh.
 LINE_SPACING = 1.25      # CỘT D (không đo được font): chiều cao 1 dòng = cỡ chữ × hệ số (pt)
-LINE_SPACING_F = 1.20    # CỘT F riêng (người dùng chỉnh 1.20 — cột F thấp hơn chút, cột D giữ 1.25)
+LINE_SPACING_F = 1.25    # CỘT F = cột D (02-Oct: đo dòng CHÍNH XÁC theo từng chữ → 1.20 làm
+                         # DFU (chữ IN HOA) bị cắn chữ; 1.20 trước đây chỉ 'đẹp' nhờ ước lượng dư)
 FONT_LINE_FACTOR = 1.05  # (đo được font) chiều cao 1 dòng = (ascent+descent) × hệ số
 ROW_PADDING_PT = 2.0     # đệm tổng trên + dưới (pt)
 _FONT_FILES = {"microsoft sans serif": "micross.ttf", "calibri": "calibri.ttf",
@@ -174,6 +175,28 @@ def _load_font(name: str, size_pt: float):
     return font
 
 
+# Độ rộng chữ (đơn vị /1000 em) theo font Arial — cùng tỉ lệ Microsoft Sans Serif.
+# Dùng khi KHÔNG có Pillow để đo font thật (02-Oct): trước đây coi mọi chữ rộng
+# bằng nhau → chữ IN HOA / chữ số (mã ticket) bị ước lượng HẸP hơn thật → thiếu
+# dòng → hàng thấp, cắn chữ (DFU, cột D nhiều PACSNP).
+_CHAR_W = {**{c: 556 for c in "0123456789"}, " ": 278, ",": 278, ".": 278, "-": 333,
+           ":": 278, ";": 278, "#": 556, "&": 667, "(": 333, ")": 333, "/": 278,
+           "_": 556, "'": 191, '"': 355, "@": 1015, "+": 584, "=": 584,
+           "A": 667, "B": 667, "C": 722, "D": 722, "E": 667, "F": 611, "G": 778,
+           "H": 722, "I": 278, "J": 500, "K": 667, "L": 556, "M": 833, "N": 722,
+           "O": 778, "P": 667, "Q": 778, "R": 722, "S": 667, "T": 611, "U": 722,
+           "V": 667, "W": 944, "X": 667, "Y": 667, "Z": 611,
+           "a": 556, "b": 556, "c": 500, "d": 556, "e": 556, "f": 278, "g": 556,
+           "h": 556, "i": 222, "j": 222, "k": 500, "l": 222, "m": 833, "n": 556,
+           "o": 556, "p": 556, "q": 556, "r": 333, "s": 500, "t": 278, "u": 556,
+           "v": 500, "w": 722, "x": 500, "y": 500, "z": 500}
+
+
+def _approx_text_px(s: str, size_pt: float) -> float:
+    """Độ rộng (pixel, 96 dpi) của chuỗi theo bảng độ rộng TỪNG CHỮ."""
+    return sum(_CHAR_W.get(ch, 600) for ch in s) / 1000 * size_pt * 96 / 72
+
+
 def _wrap_line_count(text: str, width_chars: float, name: str, size_pt: float) -> int:
     """Số dòng HIỂN THỊ (gói theo từ như Excel). Có font thật → đo pixel;
     không có → ước lượng theo cỡ chữ (độ rộng cột Excel tính theo chữ số
@@ -183,7 +206,7 @@ def _wrap_line_count(text: str, width_chars: float, name: str, size_pt: float) -
     per_chars = max(10, int((width_chars or 34) * 11 / max(size_pt, 6)))
 
     def width(s):
-        return font.getlength(s) if font else len(s) * (col_px / per_chars)
+        return font.getlength(s) if font else _approx_text_px(s, size_pt)
     total = 0
     for para in (text or "").split("\n"):
         lines, cur = 1, ""
@@ -454,7 +477,9 @@ def write_month_entries(month: date, entries: list, config,
     )
 
     try:
+        _set_author(wb, employee_name)
         wb.save(path)
+        _clean_app_props(path)
     except PermissionError:
         raise ExcelWriterError(
             f"Không ghi được {path.name} — file đang MỞ trong Excel "
@@ -719,12 +744,44 @@ def _format_col_f(ws, summary_row: int) -> int:
     return changed
 
 
-def format_delivery_file(path: Path) -> int:
+def _set_author(wb, author) -> None:
+    """Tác giả file = tên người dùng (employee_name) — không để tên trong file mẫu
+    hay tên máy (02-Oct)."""
+    wb.properties.creator = author or ""
+    wb.properties.lastModifiedBy = author or ""
+
+
+def _clean_app_props(path) -> None:
+    """docProps/app.xml: ứng dụng = "Microsoft Excel" (bỏ chữ "Openpyxl <phiên bản>"
+    mà thư viện tự ghi). Lỗi → bỏ qua, file vẫn dùng được (02-Oct)."""
+    import os
+    import tempfile
+    import zipfile
+    try:
+        with zipfile.ZipFile(path) as zin:
+            items = [(i, zin.read(i.filename)) for i in zin.infolist()]
+        fd, tmp = tempfile.mkstemp(suffix=".xlsx", dir=str(Path(path).parent)); os.close(fd)
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+            for info, data in items:
+                if info.filename == "docProps/app.xml":
+                    data = (b'<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/'
+                            b'2006/extended-properties"><Application>Microsoft Excel</Application>'
+                            b'</Properties>')
+                zout.writestr(info, data)
+        os.replace(tmp, path)
+    except Exception as e:  # noqa: BLE001
+        log.debug("Không chuẩn hóa được app.xml (%s)", e)
+
+
+def format_delivery_file(path: Path, author: str = None) -> int:
     """Định dạng cột F của 1 file có sẵn (bản giao sếp). Trả số ô xuống dòng."""
     wb = openpyxl.load_workbook(path)
     ws = wb.active
     changed = _format_col_f(ws, _find_summary_row(ws))
+    if author is not None:
+        _set_author(wb, author)
     wb.save(path)
+    _clean_app_props(path)
     return changed
 
 
@@ -751,7 +808,7 @@ def make_delivery_copy(month: date, send_day: date, config) -> Path:
     # Xuống dòng cột F CHỈ ở bản giao (gửi / gởi lại). Lỗi định dạng KHÔNG
     # chặn gửi: nội dung đã đủ trong bản copy, chỉ là chưa xuống dòng.
     try:
-        n = format_delivery_file(dst)
+        n = format_delivery_file(dst, config.get("employee_name") or "")
         log.info("Bản giao: xuống dòng cột F ở %d ô.", n)
     except PermissionError:
         raise ExcelWriterError(

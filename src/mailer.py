@@ -170,7 +170,8 @@ def get_mail_route(config) -> dict:
     Dùng chung cho: gửi thật, preview timesheet, preview email nghỉ phép,
     thông báo sau khi gửi → From/Bcc hiển thị luôn khớp cái gửi thật."""
     mode = get_mail_mode()
-    if mode == MAIL_MODE_PERSONAL:
+    # Chưa thiết lập Gmail (tùy chọn) → LUÔN mail công ty, không báo gì (02-Oct)
+    if mode == MAIL_MODE_PERSONAL and getattr(config, "gmail_ok", True):
         try:
             sender = config.gmail_address
         except AttributeError:

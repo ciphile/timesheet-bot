@@ -419,6 +419,12 @@ def _task_from_head(raw: str, actions: list) -> None:
 def warn_bare_prefixes(raw: str, actions: list) -> None:
     """Câu có tiền tố ticket THIẾU SỐ (vd "pacsdfum part e") → cảnh báo
     trong xem trước (vẫn ghi, đã viết hoa) để người dùng kiểm tra gõ sót số."""
+    typos = _tr.find_prefix_typos(raw)
+    if typos and actions:                              # (02-Oct) mã gõ đảo chữ PACS
+        actions[0].warning = ((actions[0].warning + " ") if actions[0].warning else "") + (
+            "✏️ Đã sửa mã gõ nhầm: " + ", ".join(dict.fromkeys(typos))
+            + " — đúng thì nhắn ok, sai thì nói lại.")
+        actions[0].needs_confirm = True
     bare = _tr.find_bare_prefixes(raw)
     if bare and actions:
         actions[0].warning = ((actions[0].warning + " ") if actions[0].warning else "") + (
@@ -1438,6 +1444,22 @@ def persist_actions(actions: list, config, state,
                 result["rolled_back"] = [d.isoformat() for d in sent_days]
                 log.error("Sửa ngày đã gửi THẤT BẠI (%s) — đã hoàn tác parsed_days %s",
                           err, result["rolled_back"])
+
+    # 🔄 (02-Oct) Bản nháp đang chờ gửi có chứa ngày vừa sửa → HỦY bản nháp cũ,
+    # để 'ok' KHÔNG gửi bản chưa sửa. Sửa trên chính `state` người gọi đang giữ
+    # (người gọi lưu state sau đó → không lưu đè bản nháp cũ trở lại).
+    try:
+        dr = (state or {}).get("draft") or {}
+        ps, pe = dr.get("period_start"), dr.get("period_end")
+        if dr and ps and pe and any(ps <= d.isoformat() <= pe for d in touched):
+            state["draft"] = None
+            if (state.get("conversation") or {}).get("awaiting") == "ts_mail_confirm":
+                state["conversation"] = None
+            state_mod.save_state(state)
+            result["draft_invalidated"] = True
+            log.info("Đã HỦY bản nháp %s→%s vì sửa ngày trong kỳ.", ps, pe)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Không kiểm tra được bản nháp sau khi sửa (%s)", e)
 
     return result
 

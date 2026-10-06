@@ -245,6 +245,7 @@ async def _reply_result(update: Update, result: dict):
             f"📁 File trong: thư mục output\n"
             f"✉️ Kiểm tra folder Sent: {result['sent_check']}"
             + (f"\n\n{result['leave_summary']}" if result.get("leave_summary") else ""))
+        await _after_weekly_sent(update, result)          # T6–CN: chúc + tự tắt
         return
     await update.effective_message.reply_text(f"Kết quả lạ: {result}")
 
@@ -638,6 +639,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         return
                     excel_months = res.get("excel_months", [])
                     state["conversation"] = None
+                    if res.get("draft_invalidated"):   # bản nháp cũ đã HỦY (02-Oct) —
+                        state["draft"] = None          # không lưu đè nó trở lại
                     if excel_months:  # có ngày đã gửi → nhớ để "gởi lại"
                         state["last_edited_months"] = excel_months
                     state_mod.save_state(state)
@@ -691,6 +694,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                   *unsent_lines]
                     if _mc:
                         parts.append(_mc)
+                    if res.get("draft_invalidated"):
+                        parts += ["━━━━━━━━━━━━━━━━━━", "⚠️ Bản nháp timesheet đang chờ gửi có chứa ngày bro vừa sửa → bản nháp CŨ đã được HỦY (để không gửi nhầm bản chưa sửa). Gõ /createdraft để soạn lại bản nháp mới (file Excel xem trước nằm trong data\\preview), rồi 'ok' → 'ok' để gửi."]
                     if sent_lines:
                         parts += ["━━━━━━━━━━━━━━━━━━",
                                   "📤 MUỐN GỬI LẠI CHO SẾP: gõ /resend (hoặc nhắn 'gởi lại') → xem trước rồi mới gửi",
@@ -1462,6 +1467,14 @@ async def _handle_note_action(update, state: dict, text: str, sent_day=None):
             f"Ghi lỗi ({type(e).__name__}: {e}).")
         return
 
+    # Bản nháp cũ đã HỦY vì sửa ngày trong kỳ (02-Oct) → xóa cả trong `state`
+    # đang giữ, để lần lưu sau KHÔNG ghi bản nháp cũ trở lại.
+    if res.get("draft_invalidated"):
+        state["draft"] = None
+        if (state.get("conversation") or {}).get("awaiting") == "ts_mail_confirm":
+            state["conversation"] = None
+        state_mod.save_state(state)
+
     # Nhớ tháng đã sửa nếu có ngày đã gửi
     if res.get("excel_months"):
         state["last_edited_months"] = res["excel_months"]
@@ -1472,6 +1485,8 @@ async def _handle_note_action(update, state: dict, text: str, sent_day=None):
     if res.get("excel_files"):
         msg += ("\n📁 Ngày đã gửi → cũng cập nhật Excel. Nhắn 'gởi lại' "
                 "nếu muốn gửi sếp bản mới.")
+    if res.get("draft_invalidated"):
+        msg += "\n\n" + "⚠️ Bản nháp timesheet đang chờ gửi có chứa ngày bro vừa sửa → bản nháp CŨ đã được HỦY (để không gửi nhầm bản chưa sửa). Gõ /createdraft để soạn lại bản nháp mới (file Excel xem trước nằm trong data\\preview), rồi 'ok' → 'ok' để gửi."
     await _reply_long(update, msg)
 
 
@@ -2300,6 +2315,13 @@ async def cmd_personal_mail_on(update: Update,
                                context: ContextTypes.DEFAULT_TYPE) -> None:
     """/personalmailon — xin xác nhận rồi chuyển sang gửi bằng Gmail cá nhân."""
     if not is_allowed(update): return
+    if not getattr(config, "gmail_ok", True):          # Gmail là TÙY CHỌN (02-Oct)
+        await update.effective_message.reply_text(
+            "⚠️ Chưa thiết lập Gmail cá nhân (" + config.gmail_problem + ").\n"
+            "→ Bot VẪN gửi bằng MAIL CÔNG TY như bình thường.\n"
+            "Muốn gửi bằng Gmail: điền GMAIL_ADDRESS + GMAIL_APP_PASSWORD trong "
+            "config\\secrets.env (README Bước 7), khởi động lại bot rồi gõ lại /personalmailon.")
+        return
     state = state_mod.load_state()
     if state.get("mail_mode") == "personal":
         await update.effective_message.reply_text(
@@ -2623,7 +2645,47 @@ async def _notify_holiday_missing(year: int):
                 "nhắn Claude kiểm tra giúp bro nhé.")
 
 
+_APP = None                      # Application đang chạy (để tự tắt sau khi gửi)
+AUTO_STOP_AFTER_SEND_SEC = 60    # gửi xong timesheet tuần (T6–CN) → tắt sau 1 phút
+_STOP_TASKS: set = set()
+
+
+async def _after_weekly_sent(update, result: dict) -> None:
+    """(02-Oct) Gửi THÀNH CÔNG timesheet của TUẦN NÀY vào T6 / T7 / CN → chúc
+    cuối tuần + bot tự tắt sau 1 phút (không chạy vô ích tới 23:59).
+    KHÔNG tắt khi: gởi lại (/resend) · chốt sớm T2–T5 · gửi muộn tuần trước
+    từ thứ 2 tuần sau."""
+    if result.get("kind") != "weekly" or _APP is None:
+        return
+    today = date.today()
+    if today.weekday() < 4:                       # T2–T5
+        return
+    this_fri = today - timedelta(days=today.weekday() - 4)
+    if result.get("send_day") != this_fri.isoformat():
+        return
+    app = _APP
+    at = datetime.now() + timedelta(seconds=AUTO_STOP_AFTER_SEND_SEC)
+    await update.effective_message.reply_text(
+        f"✅ Timesheet tuần {this_fri:%d/%m} đã gửi thành công.\n"
+        "🎉 Chúc bro một cuối tuần vui vẻ bên gia đình!\n"
+        f"🤖 Bot tự tắt lúc {at:%H:%M} sau khi gửi timesheet tuần {this_fri:%d/%m} "
+        "thành công. Cần dùng lại thì nhấp đúp start_bot.vbs (Mac: start_bot.command) "
+        "— hoặc bot tự bật lúc 16:00 hôm sau.")
+    log.info("Gửi xong timesheet tuần %s — bot tự tắt lúc %s.", this_fri, at.strftime("%H:%M"))
+
+    async def _stop():
+        await asyncio.sleep(AUTO_STOP_AFTER_SEND_SEC)
+        audit("BOT_AUTO_STOP_AFTER_SEND", f"tuần {this_fri.isoformat()}")
+        log.info("Bot tự tắt (đã gửi timesheet tuần %s).", this_fri)
+        app.stop_running()
+    t = asyncio.create_task(_stop())
+    _STOP_TASKS.add(t)
+    t.add_done_callback(_STOP_TASKS.discard)
+
+
 async def _post_init(app: Application):
+    global _APP
+    _APP = app
     app.create_task(_auto_stop_watcher(app))
 
 

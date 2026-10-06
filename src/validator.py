@@ -291,7 +291,15 @@ def find_issues(entries: list, expected_days: list, ph_map: dict,
             is_np_with_const = (
                 np_desc_const and desc == np_desc_const
                 and project.upper().startswith("PACSNP"))
-            if not TICKET_RE.search(desc) and not is_np_with_const:
+            # Có ticket = mã kiểu Jira (PACSDFUM-8793) HOẶC mọi dạng ticket mà
+            # task_rules nhận khi ghi chú: INC/CHG/REQ (có/không gạch), Ticket#123,
+            # "Ticket # 123". (Sửa 02-Oct: trước CHỈ nhận dạng CHỮ-SỐ → báo nhầm
+            # "thiếu số Jira ticket" cho mọi Issue Investigation ghi Ticket#/INC.)
+            has_ticket = bool(TICKET_RE.search(desc) or _tr.ALL_TICKET_RE.search(desc))
+            # Task có tiền tố ticket + mô tả không trống → task_rules (validate_
+            # task_rules bên dưới) ĐÃ kiểm & báo → không báo LẦN 2 (trùng dòng).
+            covered = bool(_tr.get_ticket_prefix(e["task"]) and desc)
+            if not has_ticket and not is_np_with_const and not covered:
                 issues["missing_jira"].append(e)
 
     # Validate task rules (D/E/F combination) — 19-Sep-2026
@@ -300,6 +308,13 @@ def find_issues(entries: list, expected_days: list, ph_map: dict,
         issues["task_rule_errors"] = task_rule_errors
 
     return {k: v for k, v in issues.items() if v}
+
+
+def issue_lines(issues: dict) -> list[str]:
+    """MỖI vấn đề = 1 phần tử (để đếm đúng "Còn N vấn đề"; bỏ dấu "- " đầu
+    dòng vì nơi hiển thị tự thêm "• "). (Thêm 02-Oct.)"""
+    return [l[2:] if l.startswith("- ") else l
+            for l in describe_issues(issues).split("\n") if l.strip()]
 
 
 def describe_issues(issues: dict) -> str:
@@ -318,8 +333,8 @@ def describe_issues(issues: dict) -> str:
         lines.append(f"- ngày {e['date']}: task lạ {e['task']!r} "
                      "(không có trong danh sách chuẩn)")
     for e in issues.get("missing_jira", []):
-        lines.append(f"- ngày {e['date']}: {e['task']} thiếu số Jira ticket "
-                     "trong description")
+        lines.append(f"- ngày {e['date']}: {e['task']} thiếu số ticket "
+                     "trong description (vd Ticket# 123456, INC123456, PACSDFUM-1234)")
     for err in issues.get("task_rule_errors", []):
         lines.append(f"- {err}")
     return "\n".join(lines)

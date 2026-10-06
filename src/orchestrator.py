@@ -143,7 +143,7 @@ def prepare_draft(config, state: dict = None, force: bool = False,
     issues = validator.find_issues(
         combined, period["expected_days"], period["ph_map"], config)
 
-    questions = problems + ([validator.describe_issues(issues)] if issues else [])
+    questions = problems + (validator.issue_lines(issues) if issues else [])
     if questions and not force:
         state["conversation"] = {"awaiting": True,
                                  "send_day": send_day.isoformat()}
@@ -270,7 +270,7 @@ def apply_edit(user_text: str, config, state: dict) -> dict:
     issues = validator.find_issues(merged, expected, ph_map, config)
     if issues:
         return {"status": "need_info",
-                "questions": [validator.describe_issues(issues)],
+                "questions": validator.issue_lines(issues),
                 "send_day": draft["send_day"]}
 
     period = {"start": start, "end": end}
@@ -568,7 +568,7 @@ def finalize_and_send(config, state: dict, force: bool = False,
     except Exception:  # noqa: BLE001 — mail đã gửi OK, clean lỗi không sao
         log.exception("Clean notes sau khi gửi lỗi — bỏ qua, mail đã gửi OK.")
 
-    return {"status": "sent",
+    return {"status": "sent", "kind": "weekly", "send_day": send_day.isoformat(),
             "message": config.get("telegram_success_message"),
             "files": [a.name for a in attachments],
             "sent_check": result["sent_check"],
@@ -598,7 +598,9 @@ def prepare_past_edit(outside_entries: list, delete_days: list,
     for month_key in sorted({d.strftime("%Y-%m") for d in touched}):
         month = date.fromisoformat(month_key + "-01")
         existing = excel_writer.read_month_entries(month, config)
-        if not existing:
+        # (02-Oct) File tháng CÓ nhưng TRỐNG (vd vừa "xóa nguyên tuần") vẫn sửa
+        # được — chỉ chặn khi file THẬT SỰ chưa có. Trước: rỗng = "chưa có file".
+        if not excel_writer.working_file_path(month).exists():
             problems.append(
                 f"Chưa có file timesheet tháng {month_key} để sửa — "
                 "kiểm tra lại ngày giúp mình?")

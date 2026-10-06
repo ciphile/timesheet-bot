@@ -89,7 +89,7 @@ def main():
         "compose_email": ["fmt_leave_day"],
         "config_loader": ["DATA_BACKUP_DIR", "NOTES_BAK_DIR", "PARSED_BAK_DIR",
                           "PARSED_SNAPSHOT_DIR", "CORRUPT_DIR"],
-        "validator": ["find_issues", "describe_issues", "split_hours",
+        "validator": ["find_issues", "describe_issues", "issue_lines", "split_hours",
                       "period_bounds"],
         "notes_store": ["add_note", "read_notes_between"],
     }

@@ -121,6 +121,20 @@ def extract_tickets_from_note(note_text: str) -> list[str]:
     return result
 
 
+# Tiền tố PACS gõ ĐẢO CHỮ (pcasdfum-89294, pascdfum-1, apcsnp-2) → PACS… (02-Oct).
+# Chỉ khi ngay sau là chữ cái (đuôi tiền tố) rồi SỐ ticket → không đụng chữ thường.
+_PACS_TYPO_RE = _re.compile(r"\b(pcas|pasc|apcs)(?=[a-z]{1,10}\s*-?\s*\d)", _re.IGNORECASE)
+
+
+def find_prefix_typos(text: str) -> list[str]:
+    """Các mã gõ nhầm tiền tố PACS, dạng 'pcasdfum-89294 → PACSDFUM-89294'."""
+    out = []
+    for m in _re.finditer(r"\b(?:pcas|pasc|apcs)[a-z]{1,10}\s*-?\s*\d+", text or "", _re.IGNORECASE):
+        fixed = normalize_ticket_text(m.group(0))
+        out.append(f"{m.group(0)} → {fixed}")
+    return out
+
+
 def normalize_ticket_text(text: str) -> str:
     """Chuẩn hóa ticket trong 1 đoạn mô tả, TÔN TRỌNG chữ người dùng gõ:
     chỉ viết hoa MÃ ticket, 'part b' → 'Part B', chữ 'ticket' → 'Ticket'.
@@ -129,6 +143,7 @@ def normalize_ticket_text(text: str) -> str:
     và mọi chuỗi dạng chữ-số như 'drop-22' → sai ý người dùng.)"""
     if not text:
         return text or ""
+    text = _PACS_TYPO_RE.sub("PACS", text)          # pcasdfum-1 → PACSdfum-1 → viết hoa bên dưới
     text = TICKET_PART_RE.sub(lambda m: canon_ticket(m.group(0)), text)
     text = BARE_PREFIX_RE.sub(_canon_bare, text)
     return _TICKET_WORD_RE.sub("Ticket", text)
@@ -711,9 +726,12 @@ def validate_entry(project: str, task_name: str,
             and description != NP_DESC_CONST
             and not is_np
             and not ALL_TICKET_RE.search(description)):
+        _d = description if len(description) <= 45 else description[:45].rstrip() + "…"
+        _vd = ("INCxxxx hoặc Ticket# xxxx" if ticket_prefix.upper() == "INC"
+               else f"{ticket_prefix}xxxx hoặc INCxxxx")
         errors.append(
-            f"Cột F '{description[:30]}' có vẻ thiếu ticket. "
-            f"Dự kiến có mã ticket (vd {ticket_prefix}xxxx hoặc INCxxxx)"
+            f"Cột F '{_d}' có vẻ thiếu ticket. "
+            f"Dự kiến có mã ticket (vd {_vd})"
         )
 
     # 7. Giờ hợp lệ

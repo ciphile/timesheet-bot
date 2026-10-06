@@ -86,6 +86,9 @@ class Config:
         self.telegram_allowed_chat_id: int = int(secrets["TELEGRAM_ALLOWED_CHAT_ID"])
         self.gmail_address: str = secrets["GMAIL_ADDRESS"]
         self.gmail_app_password: str = secrets["GMAIL_APP_PASSWORD"]
+        # Gmail cá nhân dùng được không (tùy chọn) — "" = OK, khác = lý do
+        self.gmail_problem: str = secrets.get("GMAIL_PROBLEM", "")
+        self.gmail_ok: bool = not self.gmail_problem
         self.gemini_api_key: str = secrets["GEMINI_API_KEY"]
 
         # --- Settings (từ settings.json) — gắn nguyên khối ---
@@ -120,8 +123,9 @@ class Config:
             f"Thư mục gốc        : {self.base_dir}",
             f"TELEGRAM_BOT_TOKEN : {mask(self.telegram_bot_token)}",
             f"ALLOWED_CHAT_ID    : {mask(self.telegram_allowed_chat_id)}",
-            f"GMAIL_ADDRESS      : {self.gmail_address}",
-            f"GMAIL_APP_PASSWORD : {mask(self.gmail_app_password)}",
+            (f"GMAIL_ADDRESS      : {self.gmail_address}" if self.gmail_ok else
+             f"GMAIL (tùy chọn)   : KHÔNG dùng — {self.gmail_problem} → gửi bằng mail công ty"),
+            (f"GMAIL_APP_PASSWORD : {mask(self.gmail_app_password)}" if self.gmail_ok else ""),
             f"GEMINI_API_KEY     : {mask(self.gemini_api_key)}",
             f"Nhân viên          : {self.get('employee_name')}",
             f"Email sếp          : {self.get('boss_email')}",
@@ -164,11 +168,14 @@ def _load_secrets() -> dict:
     for name in [
         "TELEGRAM_BOT_TOKEN",
         "TELEGRAM_ALLOWED_CHAT_ID",
-        "GMAIL_ADDRESS",
-        "GMAIL_APP_PASSWORD",
         "GEMINI_API_KEY",
     ]:
         secrets[name] = _check_secret(name, os.environ.get(name))
+    # Gmail cá nhân = TÙY CHỌN (02-Oct): để trống / 'chua_co' / sai dạng → KHÔNG
+    # báo lỗi, bot luôn gửi bằng mail công ty. Chỉ /personalmailon mới cảnh báo.
+    for name in ("GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"):
+        v = (os.environ.get(name) or "").strip()
+        secrets[name] = "" if v in ("", PLACEHOLDER) else v
 
     # Kiểm tra dạng của từng bí mật — bắt lỗi gõ nhầm ngay từ đầu
     if ":" not in secrets["TELEGRAM_BOT_TOKEN"]:
@@ -181,18 +188,16 @@ def _load_secrets() -> dict:
             "TELEGRAM_ALLOWED_CHAT_ID phải là con số (lấy từ @userinfobot), "
             f"đang là: {secrets['TELEGRAM_ALLOWED_CHAT_ID']!r}"
         )
-    if "@" not in secrets["GMAIL_ADDRESS"]:
-        raise ConfigError(
-            f"GMAIL_ADDRESS không giống địa chỉ email: "
-            f"{secrets['GMAIL_ADDRESS']!r}"
-        )
     password = secrets["GMAIL_APP_PASSWORD"].replace(" ", "")
-    if len(password) != 16:
-        raise ConfigError(
-            f"GMAIL_APP_PASSWORD phải đúng 16 ký tự (hiện {len(password)}). "
-            "Copy lại App Password từ Google, bỏ hết khoảng trắng."
-        )
     secrets["GMAIL_APP_PASSWORD"] = password
+    if not secrets["GMAIL_ADDRESS"] and not password:
+        secrets["GMAIL_PROBLEM"] = "chưa điền GMAIL_ADDRESS và GMAIL_APP_PASSWORD"
+    elif "@" not in secrets["GMAIL_ADDRESS"]:
+        secrets["GMAIL_PROBLEM"] = f"GMAIL_ADDRESS không giống email ({secrets['GMAIL_ADDRESS']!r})"
+    elif len(password) != 16:
+        secrets["GMAIL_PROBLEM"] = f"GMAIL_APP_PASSWORD phải đúng 16 ký tự (hiện {len(password)})"
+    else:
+        secrets["GMAIL_PROBLEM"] = ""
     # Google có 2 định dạng key: "AIza..." (cũ) và "AQ...." (mới,
     # phát hành từ giữa 2026). Cả hai đều hợp lệ.
     api_key = secrets["GEMINI_API_KEY"]
