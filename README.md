@@ -4,7 +4,20 @@ Mỗi ngày bạn **nhắn tin cho bot** trên Telegram kể mình làm gì (b�
 Bot tự điền vào bảng timesheet. **Tối thứ 6**, bot soạn sẵn file Excel + email, cho bạn **xem trước**,
 bạn nhắn `ok` thì bot mới gửi cho sếp.
 
-> 📌 Tài liệu này viết cho người **không biết lập trình**. Cứ làm lần lượt từng bước, đừng bỏ bước nào.
+> 📌 Cứ làm lần lượt từng bước, đừng bỏ bước nào.
+
+### 💡 Về dự án này
+
+- **Mục đích:** bớt việc điền timesheet hằng tuần — mỗi ngày nhắn vài chữ; **cuối tuần bot tự tổng hợp** nội dung, **soạn file Excel đúng mẫu**, **soạn email** và **GỬI MAIL chính xác cho sếp** (kèm file Excel) — bạn chỉ việc xem trước rồi nhắn `ok`.
+- **Ngày nghỉ & ngày lễ tự điền vào Excel:** nhắn *"nghỉ phép / nghỉ bệnh / nghỉ bù"* → bot ghi đúng loại nghỉ vào file Excel; ngày lễ Singapore bot **tự điền** (lễ rơi Chủ nhật → tự nghỉ bù thứ 2).
+- **Chọn mail gửi:** mặc định **mail công ty**; đổi sang **Gmail cá nhân** bằng `/personalmailon` (đổi lại: `/personalmailoff`) — áp dụng cho mọi email bot gửi.
+- **Gửi email cho sếp bất kỳ nội dung gì** (xin nghỉ, báo việc…): `/composemail` → bạn nói tiếng Việt, **AI viết email tiếng Anh ngắn gọn, chuẩn chỉnh** → xem trước → `ok` là gửi. Muốn tự gõ: `/composemanual`.
+- **Quản lý ngày phép:** 3 loại — **Annual Leave** (17 ngày/năm), **Sick Leave** (14 ngày/năm), **Special Leave** (nghỉ bù: +1 ngày cho mỗi lễ rơi thứ 7, dùng trong **3 tháng**). Số dư **tự trừ khi file Excel gửi sếp có ngày nghỉ** (số "dự kiến" tính cả ngày đã nhắn nhưng chưa gửi). Có thể **sửa tay** số dư (`/updateleave`), **xem danh sách từng ngày đã nghỉ** (`/leavelog`), và bot **tự nhắc khi ngày nghỉ bù sắp hết hạn** 3 tháng kể từ ngày lễ (chi tiết mục 8).
+- **Vì sao dùng bot Telegram, không làm app Android / iOS?** Không phải cài app riêng, không qua App Store / Google Play, không tốn phí phát hành; Telegram có sẵn trên điện thoại **lẫn** máy tính, có thông báo tức thì, nhắn tin là xong. Bot chỉ trả lời **đúng tài khoản của bạn** (chat_id), người khác nhắn vào bị từ chối.
+- **Vì sao chọn Python?** Miễn phí, chạy được **cả Windows lẫn Mac**, có sẵn thư viện tốt cho mọi việc bot cần (Telegram, Excel, email, AI, lịch lễ), code dễ đọc dễ sửa.
+- **So với dùng AI trong Microsoft 365 bản trả phí (Copilot):** Copilot giúp soạn / sửa trong Excel, nhưng bạn vẫn phải tự mở file và ra lệnh mỗi lần, và cần license trả phí. Bot này **miễn phí** (dùng gói AI miễn phí của Google), chạy **trên máy bạn** (dữ liệu nằm ở máy bạn), **tự làm trọn quy trình**: nhắc thứ 6, kiểm tra đủ 8h / 40h và luật từng loại task (cột D / E / F), tự điền ngày lễ Singapore, đếm ngày phép, soạn + gửi email kèm file Excel — chỉ cần nhắn tin từ điện thoại. AI lỗi / hết lượt thì bot vẫn chạy bằng luật dự phòng.
+- **Tác giả:** bot do **Steve Nguyen** phát triển (*vibe code* cùng **Claude** — mô hình **Opus 5.5** và **Fable 5**) để việc điền timesheet tiện lợi hơn.
+- **Email & file Excel "sạch" như tự làm tay:** email bot gửi đi chỉ có các dòng đầu thư bình thường (From / To / Cc / Bcc / Subject) — **không mang nhãn "agent-initiated"**, không có dấu hiệu "gửi tự động" hay "tạo bởi AI / bot". File Excel (xem trước, bản gửi sếp, file tháng) có **tác giả = tên bạn** (lấy từ `"employee_name"` trong `settings.json`), ứng dụng ghi **Microsoft Excel** — không ghi tên bot, AI hay thư viện lập trình.
 
 ---
 
@@ -29,6 +42,7 @@ bạn nhắn `ok` thì bot mới gửi cho sếp.
 12. [Sự cố thường gặp](#12-sự-cố-thường-gặp)
 13. [Bảo mật — điều tuyệt đối không làm](#13-bảo-mật--điều-tuyệt-đối-không-làm)
 14. [Cập nhật phiên bản mới](#14-cập-nhật-phiên-bản-mới)
+15. [Bot có nặng máy không? — kết quả đo thực tế](#15-bot-có-nặng-máy-không)
 
 ---
 
@@ -87,10 +101,17 @@ bạn nhắn `ok` thì bot mới gửi cho sếp.
 
 ### Bước 2 — Tải code về máy
 
-1. Mở link GitHub mà người chia sẻ gửi cho bạn (bạn cần nhận lời mời qua email trước — xem email từ GitHub, bấm **Accept invitation**).
+1. Mở link kho GitHub của bot (người chia sẻ gửi cho bạn). Kho để **công khai (public)** → **không cần tài khoản GitHub, không cần đăng nhập**.
 2. Bấm nút xanh **`<> Code`** → **Download ZIP**.
 3. Giải nén file ZIP ra một thư mục tạm, ví dụ `C:\taive\timesheet-bot`.
    (Đây **chỉ là thư mục tải về**, không phải nơi bot chạy.)
+
+Chi tiết từng bước tải (kho public):
+- Trên trang kho, bấm nút **màu xanh lá `<> Code`** (phía trên danh sách file, bên phải) → trong khung hiện ra, bấm **Download ZIP** (dòng cuối).
+- Trình duyệt tải về file **`timesheet-bot-main.zip`** (tên có thể khác chút) vào thư mục **Downloads**.
+- 🪟 Windows: chuột phải file ZIP → **Extract All…** → chọn thư mục (vd `C:\taive`) → **Extract**. 🍎 Mac: nhấp đúp file ZIP là tự giải nén.
+- Mở thư mục vừa giải nén: phải thấy **`CAI_DAT.bat`** (🍎 `cai_dat_mac.sh`) nằm **cạnh thư mục `src`** — đúng cấu trúc thì sang Bước 3.
+- Có bản cập nhật mới → tải lại ZIP y như trên (xem mục 14).
 
 ### Bước 3 — Chạy file cài đặt
 
@@ -181,9 +202,9 @@ C:\timesheet\
 
 > AI dùng để **hiểu câu tiếng Việt** bạn nhắn. Gói miễn phí đủ dùng cho 1 người. Khi AI lỗi, bot vẫn chạy bằng luật dự phòng (xem mục 9).
 
-### Bước 7 — Mật khẩu ứng dụng Gmail (BẮT BUỘC)
+### Bước 7 — Mật khẩu ứng dụng Gmail (TÙY CHỌN)
 
-Bot **bắt buộc** có Gmail cá nhân (thiếu là bot không khởi động). Gmail dùng để **gửi dự phòng** khi mail công ty trục trặc (lệnh `/personalmailon`).
+**Không bắt buộc.** Chỉ cần nếu bạn muốn **gửi dự phòng bằng Gmail cá nhân** khi mail công ty trục trặc (lệnh `/personalmailon`). **Không dùng Gmail** → bỏ qua bước này, ở Bước 8 **để nguyên `chua_co`** cho 2 dòng `GMAIL_…`: bot vẫn khởi động bình thường và **luôn gửi bằng mail công ty**, không báo lỗi gì.
 
 1. Bật **xác minh 2 bước** cho Gmail: https://myaccount.google.com/security
 2. Vào https://myaccount.google.com/apppasswords → đặt tên `timesheet` → **Create**.
@@ -200,6 +221,8 @@ Trong Notepad đang mở `C:\timesheet\config\secrets.env`, thay chữ `chua_co`
 | `TELEGRAM_ALLOWED_CHAT_ID=` | dãy số chat_id | Bước 5 |
 | `GMAIL_ADDRESS=` | Gmail cá nhân của bạn | — |
 | `GMAIL_APP_PASSWORD=` | 16 ký tự, **không khoảng trắng** | Bước 7 |
+
+> 2 dòng `GMAIL_ADDRESS` / `GMAIL_APP_PASSWORD` là **tùy chọn** — không dùng Gmail thì **để nguyên `chua_co`**.
 | `GEMINI_API_KEY=` | `AIza...` | Bước 6 |
 | `COMPANY_MAIL_PASSWORD=` | mật khẩu email công ty | bạn biết |
 
@@ -383,6 +406,41 @@ Bot là chương trình **Python** (28 file `.py` trong `src\`). Để **bạn k
 
 > Bấm `start_bot.vbs` **nhiều lần không sao** — bot tự chặn chạy trùng (chỉ 1 bot chạy).
 
+**Mỗi file khởi chạy gọi file Python nào (chuỗi chạy):**
+
+🪟 **Windows**
+```
+start_bot.vbs   → Windows Script Host (wscript.exe, có sẵn trong Windows)
+                → tìm thư mục chứa chính nó → vào src\
+                → chạy ẨN:  python.exe  src\bot.py        (không chờ, xong là thoát)
+                → bot.py chạy tiếp tới 23:59, tự nạp các file .py khác trong src\
+                  (ghi chú, Excel, email, ngày phép, AI, lịch lễ…)
+
+run_weekly.vbs  → wscript.exe → chạy ẨN:  python.exe  src\weekly_run.py
+                → weekly_run.py: soạn / kiểm tra bản nháp → nhắn Telegram
+                → nếu bot đang tắt: bật lịch "Timesheet Bot" (= start_bot.vbs → bot.py)
+                → weekly_run.py tự thoát (vài giây)
+
+restart_bot.bat → cửa sổ đen (cmd) → PowerShell tìm python đang chạy  src\bot.py  → tắt
+                → chờ 3 giây → gọi start_bot.vbs → bot.py chạy lại
+
+Task Scheduler: "Timesheet Bot"    (16:00)   → wscript.exe "…\start_bot.vbs"
+                "Timesheet Weekly" (T6 17:00) → wscript.exe "…\run_weekly.vbs"
+```
+
+🍎 **Mac**
+```
+start_bot.command   → Terminal (bash) → chạy NỀN:  .venv/bin/python  src/bot.py
+run_weekly.command  → .venv/bin/python  src/weekly_run.py   (chạy xong tự thoát)
+restart_bot.command → tắt đúng python đang chạy bot.py → chờ 3 giây → start_bot.command
+launchd (lịch tự động) gọi THẲNG python, không qua file .command:
+     com.timesheet.bot    (16:00)    → .venv/bin/python  …/src/bot.py
+     com.timesheet.weekly (T6 17:00) → .venv/bin/python  …/src/weekly_run.py
+```
+
+- Chỉ **2 file Python được "khởi chạy"**: `bot.py` (bot) và `weekly_run.py` (chốt tuần). 26 file `.py` còn lại là **phần dùng chung** — 2 file kia tự nạp khi cần, bạn không chạy trực tiếp (trừ vài công cụ kiểm tra như `selfcheck.py`, `config_loader.py`).
+- Trong Task Manager có thể thấy **2 dòng `python.exe`** cho 1 bot: một **tiến trình mồi** rất nhỏ (chỉ để khởi động) và **bot thật** — bình thường (xem mục 15).
+
 **`.vbs` là gì? Khác `.exe`, `.bat` thế nào?**
 
 | Loại file | Là gì | Mở bằng Notepad đọc được? | Khi chạy |
@@ -438,7 +496,7 @@ Trên máy bạn có **2 chương trình khác nhau**, chạy bởi **2 lịch k
 | | Timesheet Bot (`bot.py`) | Timesheet Weekly (`weekly_run.py`) |
 |---|---|---|
 | Chạy lúc | 16:00 mỗi ngày (hoặc nhấp đúp `start_bot.vbs`) | Thứ 6 17:00 (hoặc nhấp đúp `run_weekly.vbs`) |
-| Chạy bao lâu | Tới **23:59** rồi tự tắt | Vài giây, **xong việc là thoát** |
+| Chạy bao lâu | Tới **23:59** rồi tự tắt — riêng **T6 / T7 / CN**: tự tắt **1 phút sau khi gửi xong** timesheet tuần (mục 5) | Vài giây, **xong việc là thoát** |
 | Làm gì | Nghe & trả lời tin nhắn, ghi timesheet, gửi mail khi bạn `ok` | Soạn bản nháp tuần / hỏi ngày còn thiếu → nhắn Telegram. **Không gửi sếp** |
 | Có trả lời tin nhắn? | ✅ Có | ❌ Không |
 
@@ -587,6 +645,7 @@ Phần nào không ghi giờ → bot chia đều số giờ còn lại cho đủ
 - AI lỡ **bỏ sót** mã bạn gõ → bot **tự bổ sung** và báo cho bạn.
 - AI lỡ viết **mã lạ** không có trong câu bạn gõ → bot cảnh báo *"AI thêm mã KHÔNG có trong câu bro gõ"*, bắt bạn xác nhận.
 - Cột F nhiều ticket (có dấu phẩy, dài) → trong Excel **tự xuống dòng mỗi ticket 1 dòng**, bỏ dấu phẩy cuối dòng cho gọn.
+- Mã PACS **gõ đảo chữ** (vd `pcasdfum-89294`, `pascnp-123`) → bot **tự sửa** thành `PACSDFUM-89294`, `PACSNP-123` (viết hoa, xuống dòng như mọi ticket) và **báo cho bạn** trong bước xác nhận: *"✏️ Đã sửa mã gõ nhầm: pcasdfum-89294 → PACSDFUM-89294 — đúng thì nhắn ok, sai thì nói lại."*
 
 ### 4.7 File Excel trình bày cột D / E / F thế nào
 
@@ -633,7 +692,9 @@ Không xuống dòng theo mã như cột F — ô cột D **tự gói chữ** th
 Ví dụ thật: hàng 5 ticket ở trên cao khoảng 5–6 dòng chữ; hàng NP 7 mã khoảng 3 dòng; hàng thường giữ 1 dòng.
 
 > Muốn hàng thấp / cao hơn chút: mở `src\excel_writer.py` bằng Notepad, bấm **Ctrl + F** tìm chữ `LINE_SPACING` — có 2 dòng
-> `LINE_SPACING = 1.25` (cột D) và `LINE_SPACING_F = 1.20` (cột F) — giảm số là thấp hơn, tăng là cao hơn (thử từng bước 0.05).
+> `LINE_SPACING = 1.25` (cột D) và `LINE_SPACING_F = 1.25` (cột F) — giảm số là thấp hơn, tăng là cao hơn (thử từng bước 0.05).
+>
+> Bot **đo độ rộng theo từng chữ** (chữ IN HOA và chữ số rộng hơn chữ thường) để biết ô cần bao nhiêu dòng — nên hàng có nhiều mã ticket IN HOA (DFU, cột D nhiều mã PACSNP) cũng đủ cao, không cắn chữ trên / dưới.
 
 **⑥ Nhiều task trong 1 câu** → mỗi task là **1 hàng riêng** trong Excel (vd `nghỉ phép 4 tiếng, 4 tiếng làm DFU pacsdfum-4482` → 2 hàng: Annual Leave 4h và DFU 4h).
 
@@ -680,7 +741,91 @@ Bro điền bổ sung giúp mình (nhắn như ghi chú bình thường). Điề
 | `/forcedraft` | tạo bản nháp bỏ qua lỗi kiểm tra |
 | `/sendmail` · `/forcesendmail` | gửi bản nháp / gửi dù còn lỗi |
 
-**Sau khi gửi:** bot báo *"📤 ĐÃ GỬI"* (server mail đã nhận), báo số ngày phép còn lại, tự dọn nhật ký tin nhắn (có backup). Bot **vẫn chạy** bình thường tới 23:59.
+**Sau khi gửi:** bot báo *"📤 ĐÃ GỬI"* (server mail đã nhận), báo số ngày phép còn lại, tự dọn nhật ký tin nhắn (có backup). Nếu là **thứ 6 / thứ 7 / CN** và vừa gửi timesheet **tuần này** → bot chúc cuối tuần và **tự tắt sau 1 phút** (xem ngay dưới).
+
+### 🌙 Gửi xong tối thứ 6 → bot chúc cuối tuần và tự tắt
+
+Gửi **thành công** timesheet của **tuần này** vào **thứ 6, thứ 7 hoặc Chủ nhật** → bot nhắn:
+```
+✅ Timesheet tuần 02/10 đã gửi thành công.
+🎉 Chúc bro một cuối tuần vui vẻ bên gia đình!
+🤖 Bot tự tắt lúc 17:56 sau khi gửi timesheet tuần 02/10 thành công. Cần dùng lại thì
+   nhấp đúp start_bot.vbs (Mac: start_bot.command) — hoặc bot tự bật lúc 16:00 hôm sau.
+```
+→ **1 phút sau** bot tự tắt (không chạy vô ích tới 23:59).
+
+| Trường hợp | Tự tắt sau khi gửi? |
+|---|---|
+| Gửi timesheet **tuần này** vào **T6 / T7 / CN** (kể cả gửi trễ tối T7, CN) | ✅ Có — chúc cuối tuần + tắt sau 1 phút |
+| **Chốt sớm** thứ 2 – thứ 5 (`gởi timesheet tới hôm nay`) | ❌ Không |
+| Gửi **muộn** timesheet tuần trước, từ **thứ 2 tuần sau** trở đi | ❌ Không |
+| **Gởi lại** bản sửa (`/resend`) | ❌ Không |
+| Bật lại bot tay sau khi nó đã tự tắt | ❌ Không tự tắt nữa (chỉ tắt lúc 23:59 như thường) |
+
+### 👀 Muốn XEM TRƯỚC file Excel rồi mới quyết định gửi?
+
+**Không có gì tự gửi sếp** — bot luôn chờ bạn nhắn `ok` **2 lần**. Nên bạn có thể yên tâm tạo bản nháp, mở file Excel ra xem trước, rồi mới quyết định.
+
+**Luồng 1 — Bình thường (để bot tự chạy 17:00, không cần mở thư mục):**
+```
+Mỗi ngày: nhắn ghi chú cho bot
+        │
+17:00 T6 ▼  weekly_run.py tự chạy
+   soạn BẢN NHÁP + tạo file Excel xem trước (data\preview\)
+   → nhắn Telegram: tóm tắt + GỬI KÈM FILE EXCEL xem trước (chỉ lịch 17:00 tự động)
+        │
+        ▼  bạn mở file Excel được gửi kèm trong Telegram để xem (hoặc mở trong data\preview\)
+   ┌─ ổn ──────► nhắn  ok  → hiện EMAIL XEM TRƯỚC → nhắn  ok  → ĐÃ GỬI SẾP ✅
+   └─ cần sửa ─► nhắn sửa như ghi chú → /createdraft → xem lại → ok → ok
+```
+
+> **Lưu ý — khi nào bot gửi kèm file Excel vào Telegram:** **chỉ lịch 17:00 tự động** (hoặc nhấp đúp `run_weekly.vbs`). Gõ lệnh `/weeklyrun` hay `/createdraft` thì bot **chỉ nhắn tóm tắt** (số ngày, tổng giờ, tên file) — file Excel xem trước nằm trong `data\preview\` (xem Luồng 2). Khi bạn nhắn `ok` lần 1, bot hiện **nội dung từng ngày (cột D / E / F) ngay trong chat** để bạn xem lại lần cuối trước khi `ok` lần 2.
+
+**Luồng 2 — Tự tạo bản nháp sớm để xem trước** (vd 15:00 thứ 6 đã nhập xong cả tuần):
+```
+① Gõ  /createdraft
+     → bot nhắn TÓM TẮT bản nháp (giờ từng ngày, tổng giờ)
+     → file Excel xem trước được tạo trong thư mục:
+         🪟 C:\timesheet\data\preview\
+         🍎 ~/timesheet/data/preview/
+       tên file ĐÚNG như file sẽ gửi sếp, vd:
+         LiveReport Sept_2026 -TenBan (25 Sept).xlsx
+② Mở file đó bằng Excel để xem  (🪟 Windows + R → dán  C:\timesheet\data\preview  → Enter)
+   ⚠️ XEM XONG NHỚ ĐÓNG EXCEL (file đang mở thì bot không ghi / gửi được)
+③ Quyết định:
+   ┌─ Ổn, gửi luôn ─────► nhắn  ok  → EMAIL XEM TRƯỚC (From / To / nội dung / file đính kèm)
+   │                       → nhắn  ok  → ĐÃ GỬI SẾP ✅
+   ├─ Cần sửa ──────────► nhắn sửa như ghi chú bình thường, vd "thứ 5 đổi thành nghỉ phép"
+   │                       → bot ghi bản sửa + báo "bản nháp CŨ đã HỦY"
+   │                       → gõ lại  /createdraft  → mở file mới xem lại → ok → ok
+   └─ Chưa muốn gửi ────► cứ để đó: bản nháp KHÔNG hết hạn.
+                           (17:00 bot vẫn tự chạy, soạn lại bản nháp mới nhất + nhắn kèm file)
+```
+
+- File xem trước trông **y hệt** file sẽ gửi sếp (kể cả xuống dòng mỗi ticket ở cột F) — chỉ khác là **chưa gửi ai**.
+- **Đã có bản nháp mà nhắn sửa** một ngày trong tuần đó → bot **tự hủy bản nháp cũ** và nhắc bạn `/createdraft` lại, để **không bao giờ gửi nhầm bản chưa sửa**.
+- `/checkdraft` xem lại tóm tắt bản nháp đang chờ · `/deletedraft` xóa bản nháp · `khoan gởi` / `bỏ khoan` đánh dấu tạm giữ.
+
+### 📋 Tóm tắt: chiều thứ 6 diễn ra thế nào — bot có tự tắt không?
+
+**17:00 thứ 6**, máy tự chạy chương trình riêng **`weekly_run.py`** (*không phải bot* — xem mục 3e). Nó chạy **vài giây**:
+1. Kiểm tra / soạn bản nháp timesheet cả tuần.
+2. Kiểm tra **bot** (`bot.py`): bot **chưa chạy → tự bật bot lên**; đang chạy rồi → thôi.
+3. Nhắn Telegram cho bạn (danh sách ngày còn thiếu, hoặc bản nháp).
+4. **`weekly_run.py` tự thoát.** Đây là chương trình *kiểm tra* thoát — **bot vẫn chạy tiếp**.
+
+| Tình huống | Chuyện gì xảy ra | Bot có tự tắt? |
+|---|---|---|
+| **Chưa đủ** timesheet cả tuần | Nhắn danh sách ngày còn thiếu → bạn điền bổ sung → gõ `/weeklyrun` | ❌ Không — bot vẫn chạy để bạn điền tiếp |
+| **Đủ** timesheet | Nhắn **bản nháp** → chờ bạn trả lời | ❌ Không — bot chờ |
+| **Chờ lâu** (vd 2 tiếng) không trả lời | Bản nháp **không có giờ hết hạn** — vẫn nằm chờ | ❌ Không — bot chạy tới **23:59** |
+| Bạn nhắn **`ok`** (lần 1) | Hiện **email xem trước** (From / To / nội dung / file Excel) — **chưa gửi** | ❌ Không |
+| Bạn nhắn **`ok`** (lần 2) | **Gửi** mail + file Excel cho sếp | ✅ T6 / T7 / CN: chúc cuối tuần + **tự tắt sau 1 phút** · ❌ chốt sớm T2–T5 / gửi muộn tuần trước: vẫn chạy tới 23:59 |
+| Tới **23:59** vẫn chưa trả lời | Bot tự tắt theo lịch, nhưng **bản nháp KHÔNG mất** (lưu trong file trạng thái) → 16:00 hôm sau bot bật lại, nhắn `ok` là tiếp tục | Tắt lúc 23:59 (như mọi ngày) |
+
+**Bot chỉ tắt khi:** tới **23:59** (tự tắt, 16:00 hôm sau tự bật lại) — hoặc **gửi xong timesheet tuần này vào T6 / T7 / CN** (tự tắt sau 1 phút) — hoặc bị tắt **từ bên ngoài** (tắt máy, máy ngủ, End task…). Chốt tuần hay gửi mail **chưa xong** thì bot không tắt.
+
+> Bản nháp timesheet **không bao giờ tự hủy** vì chờ lâu — chỉ mất khi bạn nhắn `hủy` / `/deletedraft`, hoặc khi đã gửi.
 
 ---
 
@@ -729,6 +874,8 @@ Ngày **đã gửi** → bot sửa **cả file Excel** (có backup bản cũ) �
 | `/personalmailoff` → về mail công ty | | |
 
 Áp dụng cho **cả** timesheet lẫn email xin nghỉ.
+
+**Chưa thiết lập Gmail** (để `chua_co` hoặc điền sai dạng) → bot **luôn gửi bằng mail công ty**, không báo lỗi. Gõ `/personalmailon` lúc đó thì bot chỉ **cảnh báo** *"⚠️ Chưa thiết lập Gmail cá nhân… → Bot VẪN gửi bằng MAIL CÔNG TY"* kèm cách thiết lập (Bước 7), không chuyển chế độ.
 
 **Gửi lỗi** (sai mật khẩu, mạng chặn, server từ chối, file quá lớn...) → bot báo *"❌ MAIL CHƯA GỬI ĐƯỢC"* + lý do + cách xử lý. Email đang chờ **được giữ lại** → đổi mail (`/personalmailon`) → `ok` → bot hiện lại email → `ok` gửi.
 
@@ -852,6 +999,40 @@ python ai_client.py
 
 `parsed_days.json` bị hỏng → bot cất bản hỏng vào `data\backup\corrupt\` và báo ở `/status`. Khôi phục: chép bản mới nhất trong `data\backup\parsed_days_daily\` về `data\parsed_days.json` rồi khởi động lại bot.
 
+### 📁 File Excel: đặt tên thế nào, nằm ở đâu, tạo / xóa khi nào
+
+**Sếp nhận timesheet theo THÁNG.** Mỗi tuần bot gửi file của **tháng đó**, **cộng dồn** từ ngày 1 tới ngày gửi. Tên file theo mẫu trong `settings.json`:
+```
+LiveReport <Tháng>_<Năm> -TenBan (<ngày gửi> <tháng gửi>).xlsx
+```
+
+**Ví dụ tháng 9 – 10/2026:**
+
+| Ngày gửi | Tuần | File gửi sếp (đính kèm email) | Trong file có |
+|---|---|---|---|
+| T6 18/09 | 14–18/09 | `LiveReport Sept_2026 -TenBan (18 Sept).xlsx` | 01/09 → 18/09 |
+| T6 25/09 | 21–25/09 | `LiveReport Sept_2026 -TenBan (25 Sept).xlsx` | 01/09 → 25/09 (cộng dồn) |
+| **T6 02/10** | **28/09–02/10 (vắt 2 tháng)** | **2 file trong CÙNG 1 email:** | |
+| | | `LiveReport Sept_2026 -TenBan (2 Oct).xlsx` | 01/09 → **30/09** (đủ tháng 9) |
+| | | `LiveReport Oct_2026 -TenBan (2 Oct).xlsx` | **01/10 → 02/10** |
+| T6 09/10 | 05–09/10 | `LiveReport Oct_2026 -TenBan (9 Oct).xlsx` | 01/10 → 09/10 |
+
+→ Tuần vắt qua 2 tháng: bot **tự tách** — ngày của tháng nào vào **file tháng đó**, cả 2 file được **đính kèm chung 1 email**. Tên file mang **tháng của dữ liệu** (Sept / Oct) + **ngày gửi** (2 Oct).
+
+**File Excel nằm ở 3 thư mục (trong thư mục cài đặt `C:\timesheet` / 🍎 `~/timesheet`):**
+
+| Thư mục / file | Là gì | Tạo khi nào | Giữ bao lâu |
+|---|---|---|---|
+| `data\preview\LiveReport Sept_2026 -TenBan (2 Oct).xlsx` | **File XEM TRƯỚC** — giống hệt file sẽ gửi, **chưa gửi ai** | Mỗi lần soạn bản nháp: 17:00 thứ 6, `/createdraft`, `/weeklyrun`, chốt sớm. Soạn lại → **ghi đè** | **Tự xóa sau 7 ngày** (tạo lại được bất cứ lúc nào) |
+| `output\LiveReport_2026-09.xlsx` | **File làm việc của THÁNG** — sổ gốc bot giữ, cập nhật dần | Lần đầu gửi tháng đó; **cập nhật** mỗi lần gửi, và khi `/edittimesheet` sửa ngày đã gửi | **Giữ vĩnh viễn** — bot dùng để tính ngày phép, gửi lại. **Không xóa** |
+| `output\LiveReport Sept_2026 -TenBan (25 Sept).xlsx` | **Bản ĐÃ GỬI sếp** — bản sao đúng từng lần gửi (tên có ngày gửi) | Lúc bạn nhắn `ok` lần 2 (gửi) hoặc `/resend` (gửi lại) | **Giữ vĩnh viễn** — làm lịch sử, mỗi tuần thêm 1 file |
+| `backup\LiveReport_2026-09.before_20261002_170512.xlsx` | Bản sao file làm việc **ngay trước mỗi lần ghi** (phòng ghi hỏng) | Trước mỗi lần bot ghi đè `output\LiveReport_YYYY-MM.xlsx` | **Tự xóa sau 90 ngày** |
+
+**Khác nhau giữa `data\preview\` và `output\`:**
+- `data\preview\` = **nháp để xem** — có thể khác bản gửi nếu bạn sửa sau đó; bị ghi đè / tự xóa; **không bao giờ được gửi**.
+- `output\` = **sản phẩm thật** — chỉ có file khi **đã gửi** (hoặc sửa ngày đã gửi); **không bao giờ tự xóa**.
+- Muốn biết sếp **đã nhận đúng file nào** → mở `output\` tìm file có **ngày gửi** tương ứng (vd `(25 Sept)`).
+
 **Lệnh xóa (từ nhẹ tới mạnh):**
 
 | Lệnh | Tác dụng |
@@ -892,6 +1073,7 @@ python ai_client.py
 
 **❓ Nhắn mà bot không trả lời**
 - Bot chỉ chạy từ **16:00 tới 23:59** (hoặc khi bạn bật tay). Ngoài giờ đó → nhấp đúp `C:\timesheet\start_bot.vbs`, chờ 10 giây, nhắn lại.
+- **Tối thứ 6 / cuối tuần sau khi đã gửi xong timesheet tuần** → bot **tự tắt** (bình thường, xem mục 5). Cần dùng → nhấp đúp `start_bot.vbs`.
 - Máy tắt / ngủ / khởi động lại sau 16:00 → bot không tự bật lại → nhấp đúp `start_bot.vbs`.
 - Nhấp đúp `start_bot.vbs` nhiều lần **không sao** — bot tự chặn chạy trùng.
 - 🍎 Mac: bật tay bằng `start_bot.command`; lỗi (nếu có) nằm trong `~/timesheet/data/logs/bot_console.log`.
@@ -935,6 +1117,7 @@ schtasks /Create /TN "Timesheet Weekly" /TR "wscript.exe \"C:\timesheet\run_week
 - ❌ **Không** gửi / chụp màn hình / đưa lên mạng file `config\secrets.env`.
 - ❌ **Không** chia sẻ TOKEN bot, API key, mật khẩu cho bất kỳ ai (kể cả người chia sẻ bot).
 - ❌ **Không** đưa thư mục `C:\timesheet` (có dữ liệu của bạn) lên GitHub.
+- ❌ Kho GitHub của bot để **công khai (public)** — **ai cũng xem được**. Tuyệt đối **không** đưa lên GitHub (kể cả trong comment, issue, ảnh chụp, hay file cấu hình): **email sếp**, **email công ty** của bạn, **`company_mail_host`** (địa chỉ server mail công ty), cùng mọi nội dung `settings.json` / `secrets.env` thật. Muốn góp ý / báo lỗi trên GitHub → che hết các thông tin này trước.
 - ✅ Lỡ để lộ TOKEN → vào @BotFather gõ `/revoke` để đổi token mới, dán vào secrets.env, khởi động lại bot.
 - ✅ Lỡ để lộ API key → xóa key cũ ở https://aistudio.google.com/apikey, tạo key mới.
 
@@ -950,3 +1133,45 @@ Khi có bản mới trên GitHub:
    (Không dùng `CAI_DAT.bat` để cập nhật — nó sẽ dừng lại vì thấy bot đã cài, để bảo vệ dữ liệu của bạn.)
 4. Kiểm tra: `cd /d C:\timesheet\src` → `python selfcheck.py` (🍎 Mac: `cd ~/timesheet/src` → `../.venv/bin/python selfcheck.py`).
 5. Nhấp đúp `restart_bot.bat` (🍎 `restart_bot.command`) — tắt bot cũ, bật bot mới.
+
+---
+
+## 15. Bot có nặng máy không?
+
+**Kết quả đo thực tế** trên laptop Windows **Intel Core i5-6300U, RAM 8 GB**, trong lúc **đang dùng bot bình thường** (có nhắn **nhiều tin** cho bot trong lúc đo, đo 1 phút):
+
+```
+PID 4008  - đang nằm trong RAM  12 MB - bot đã dùng tổng cộng   6 MB
+PID 19072 - đang nằm trong RAM 101 MB - bot đã dùng tổng cộng 189 MB
+Bot PID 19072 - RAM 96 MB - CPU trung bình 1 phút 0.06%
+```
+
+**Ý nghĩa từng thông số:**
+
+| Thông số | Nghĩa |
+|---|---|
+| **PID** | Số hiệu Windows đặt cho mỗi chương trình đang chạy. Có **2 PID** cho 1 bot: **4008** là **tiến trình mồi** (chỉ để khởi động Python, rất nhỏ), **19072** là **bot thật** |
+| **Đang nằm trong RAM** | Phần bộ nhớ **thật sự chiếm RAM** lúc đo. Bot thật: **~100 MB** ≈ **1,2% RAM 8 GB** |
+| **Đã dùng tổng cộng** | Toàn bộ bộ nhớ bot đã **xin** (kể cả phần chưa cần, Windows để tạm ra ngoài RAM). Con số này lớn hơn nhưng **không chiếm RAM thật** toàn bộ. (Tiến trình mồi có "tổng" nhỏ hơn "trong RAM" vì phần lớn là thư viện hệ thống **dùng chung** với chương trình khác) |
+| **CPU trung bình 1 phút** | Phần sức xử lý bot dùng: **0,06%** — gần như **không dùng gì** |
+
+**So với ứng dụng quen thuộc** (mức thường gặp, tùy máy):
+
+| Ứng dụng | RAM | CPU lúc để yên |
+|---|---|---|
+| Notepad | ~5–15 MB | 0% |
+| Calculator | ~20–40 MB | 0% |
+| **Bot timesheet** (đang dùng, có nhắn tin) | **~100 MB** | **~0,06%** (trung bình 1 phút) |
+| Word / Excel (mở 1 file trống) | ~100–200 MB | ~0–1% |
+| Microsoft Teams | ~300–800 MB | vài % |
+| Chrome (vài tab) | ~500 MB – 1,5 GB | vài % |
+
+→ Bot nhẹ **ngang việc để mở 1 file Word / Excel trống**, nhẹ hơn nhiều so với Teams hay Chrome. Chạy cả buổi chiều không làm máy chậm.
+
+**Lưu ý:** số đo trên là lúc **đang nhắn tin dùng bot** (gồm cả lúc bot gọi AI, ghi Excel) mà CPU trung bình vẫn chỉ **0,06%**. Khi **không ai nhắn** (chế độ chờ), bot còn **nhẹ hơn nữa**: CPU gần như 0%, RAM có thể còn thấp hơn vì Windows tạm cất bớt phần chưa dùng. Mỗi lần bạn nhắn (gọi AI, ghi Excel, gửi mail) RAM / CPU chỉ **nhích lên 1–2 giây** rồi trở lại — phần lớn thời gian đó là **chờ AI / mạng trả lời**, không tốn sức máy. Chương trình chốt tuần thứ 6 (`weekly_run.py`) chỉ chạy **vài giây** rồi thoát.
+
+**Tự đo trên máy bạn** (khi bot đang chạy) — mở `cmd`, dán lệnh, chờ 60 giây:
+```
+powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*\src\bot.py*' } | ForEach-Object { Get-Process -Id $_.ProcessId } | Sort-Object WorkingSet64 -Descending | Select-Object -First 1; $c1 = $p.CPU; Start-Sleep 60; $p.Refresh(); 'Bot PID {0} - RAM {1:N0} MB - CPU trung binh 1 phut {2:N2}%' -f $p.Id, ($p.WorkingSet64/1MB), (($p.CPU-$c1)/60/[Environment]::ProcessorCount*100)"
+```
+
