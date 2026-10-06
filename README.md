@@ -43,6 +43,9 @@ bạn nhắn `ok` thì bot mới gửi cho sếp.
 13. [Bảo mật — điều tuyệt đối không làm](#13-bảo-mật--điều-tuyệt-đối-không-làm)
 14. [Cập nhật phiên bản mới](#14-cập-nhật-phiên-bản-mới)
 15. [Bot có nặng máy không? — kết quả đo thực tế](#15-bot-có-nặng-máy-không)
+16. [Bot nhớ thế nào — AI không có trí nhớ](#16-bot-nhớ-thế-nào--ai-không-có-trí-nhớ)
+17. [Async và kết nối Telegram 2 chiều](#17-async-và-kết-nối-telegram-2-chiều)
+18. [Luồng dữ liệu và kế hoạch phát triển (phase 2)](#18-luồng-dữ-liệu-và-kế-hoạch-phát-triển-phase-2)
 
 ---
 
@@ -1175,3 +1178,163 @@ Bot PID 19072 - RAM 96 MB - CPU trung bình 1 phút 0.06%
 powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*\src\bot.py*' } | ForEach-Object { Get-Process -Id $_.ProcessId } | Sort-Object WorkingSet64 -Descending | Select-Object -First 1; $c1 = $p.CPU; Start-Sleep 60; $p.Refresh(); 'Bot PID {0} - RAM {1:N0} MB - CPU trung binh 1 phut {2:N2}%' -f $p.Id, ($p.WorkingSet64/1MB), (($p.CPU-$c1)/60/[Environment]::ProcessorCount*100)"
 ```
 
+---
+
+## 16. Bot nhớ thế nào — AI không có trí nhớ
+
+### AI không có trí nhớ — bot mới là "trí nhớ"
+
+**Mỗi lần bot gọi AI (Gemini) là một cuộc gọi ĐỘC LẬP:** AI chỉ biết đúng những gì được gửi kèm trong lần đó, trả lời xong là **quên sạch**. Bot gọi kiểu *"gửi 1 câu lệnh → nhận 1 câu trả lời"*, không mở "phiên trò chuyện" nào để AI giữ lịch sử.
+
+**Vậy sao bot vẫn hiểu "giống tuần trước", "thay các ngày này thành nghỉ phép"?** Vì **chính bot đóng vai trí nhớ**:
+- **Trí nhớ thật** (bạn làm gì ngày nào) nằm trong **file của bot**: `data\parsed_days.json` (từng ngày đã chốt, sạch theo cột D/E/F), `data\state.json` (bản nháp, đang chờ xác nhận gì…), và các **file Excel tháng** trong `output\` (dữ liệu đã gửi sếp).
+- **Mỗi lần gọi AI, bot tự chọn và gửi kèm ĐÚNG phần ngữ cảnh cần:**
+
+| Lần gọi AI | Bot gửi kèm "trí nhớ" gì |
+|---|---|
+| Phân tích 1 tin ghi chú | Ngày hôm nay + bộ luật cột D/E/F của từng loại task + **chỉ câu vừa nhắn** |
+| Nói lại / đính chính ("thay **các ngày này** thành…") | Thêm **danh sách các ngày** của lần sửa trước → AI hiểu "các ngày này" là ngày nào |
+| Soạn nháp cuối tuần (nếu còn ngày cần AI) | Thêm **~10 ngày làm việc gần nhất** đọc từ file Excel đã gửi → AI hiểu "giống tuần trước / giống hôm qua" |
+
+AI chỉ là **"bộ não xử lý câu chữ"** được gọi lên từng lần; **quyết định cái gì được nhớ, nhớ ở đâu, gửi phần nào cho AI** là việc của code bot.
+
+### So sánh: để AI tự đọc lại ghi chú cũ vs. bot làm trí nhớ
+
+**Phiên bản đầu của bot** từng làm kiểu thứ nhất: mỗi tin nhắn → lưu vào `notes.jsonl` → **đọc lại TOÀN BỘ ghi chú cả kỳ** → gửi cả đống cho AI để AI tự dựng lại timesheet. Thực tế chạy cho thấy AI (nhất là model nhẹ) **hay "lú"**: hiểu nhầm ngày, **tự làm lại lệnh xóa cũ** (nhắn ngày 18/9 thì bot đòi xóa 15/9 — vì lệnh "xóa 15/9" cũ vẫn nằm trong ghi chú), đọc nhầm dấu đánh dấu đã xóa, tự sửa ngày không liên quan. Vì vậy bot được **viết lại** sang kiểu thứ hai (module `note_action.py` — xử lý TỪNG tin, lưu kết quả sạch vào `parsed_days.json`).
+
+| | ❌ Cách CŨ: AI tự đọc lại toàn bộ ghi chú | ✅ Cách HIỆN TẠI: bot làm trí nhớ, gửi kèm đúng phần cần |
+|---|---|---|
+| **Cách làm** | Mỗi lần: gửi AI **tất cả** ghi chú cả kỳ, AI tự suy ra timesheet | AI chỉ xử lý **câu mới**; kết quả sạch được bot **lưu lại**; bot tự chọn mẩu ngữ cảnh gửi kèm |
+| **Ưu điểm** | Code đơn giản; AI "thấy" hết lịch sử; câu sửa sau tự đè câu trước | **Chính xác, ổn định**; câu lệnh gửi AI **ngắn** → nhanh, ít tốn lượt; ngày **đã chốt không bị AI "nghĩ lại"**; dọn ghi chú cũ thoải mái; AI lỗi vẫn ghi được bằng luật dự phòng |
+| **Khuyết điểm** | Ghi chú càng nhiều câu lệnh càng dài → AI **càng dễ lú**; nhầm ngày; **lệnh xóa cũ tái phát**; sửa nhầm ngày không liên quan; **cùng dữ liệu mà mỗi lần ra kết quả khác**; tốn lượt; không dọn ghi chú giữa kỳ được | Code phức tạp hơn (phải tự viết phần "chọn gửi gì"); câu tham chiếu kiểu lạ mà bot chưa gửi đúng ngữ cảnh → AI không hiểu → bot **hỏi lại** (an toàn hơn đoán sai) |
+
+> Bài học: **đừng bắt AI nhớ** — hãy để **code** giữ dữ liệu chính xác, và chỉ đưa cho AI **đúng phần nó cần** cho câu hỏi hiện tại.
+
+### Có nên dùng dịch vụ "trí nhớ cho AI" (Supermemory, Mem0, Letta, Memories.ai)?
+
+Các dịch vụ này **không làm cho model AI nhớ được** — model vẫn quên sạch sau mỗi lần gọi. Chúng làm đúng việc bot đang làm, chỉ là **tự động và ở quy mô lớn**: *lưu lại mọi thứ → khi có câu hỏi mới, tự TÌM những mẩu "có vẻ liên quan" → gửi kèm cho AI.*
+
+**Giá tham khảo (tháng 10/2026 — giá đổi thường xuyên, kiểm tra trang chính thức trước khi dùng):**
+
+| Dịch vụ | Tính tiền theo | Miễn phí | Trả phí | Tự cài miễn phí |
+|---|---|---|---|---|
+| **Supermemory** | Lượng dữ liệu **mới** xử lý (nội dung lặp không tính lại) | ~$5 hạn mức/tháng | Pro **$19**/tháng · Scale **$399**/tháng | Chỉ gói lớn |
+| **Mem0** | Số lần **ghi / tìm** ký ức | 10.000 ghi + 1.000 tìm/tháng | Starter **$19** (50.000/5.000) · Pro **$249** (500.000/50.000, có sơ đồ quan hệ) | ✅ Mã nguồn mở |
+| **Letta** (tiền thân MemGPT) | Lượt AI + số "agent" (nền tảng xây agent có trí nhớ, **đã gồm lượt gọi AI**) | Có (giới hạn) | Pro **$20**/tháng | ✅ Mã nguồn mở |
+| **Memories.ai** | Chuyên **ký ức cho video** (hàng nghìn giờ phim) | — | Chưa kiểm chứng giá | — |
+
+Với Supermemory và Mem0, **tiền gọi AI (Gemini, OpenAI…) trả riêng**.
+
+| ✅ Ưu điểm | ❌ Khuyết điểm |
+|---|---|
+| Tự tìm mẩu liên quan trong khối dữ liệu **khổng lồ, rời rạc** (email, tài liệu, lịch sử chat) | Tìm theo **"độ giống"** → có thể **bỏ sót, lấy nhầm, lấy bản cũ** → không chính xác tuyệt đối |
+| Nhớ **sở thích người dùng** qua nhiều phiên (trợ lý cá nhân) | **Thêm chi phí** và thêm thời gian chờ |
+| Đỡ phải tự xây hệ thống tìm kiếm | **Gửi dữ liệu ra công ty thứ ba** (bảo mật, chính sách công ty) |
+| | **Phụ thuộc nhà cung cấp** (đổi giá — vd Mem0 nhảy $19 → $249 —, đổi gói, ngừng dịch vụ); khó kiểm tra vì sao AI "nhớ" sai |
+
+**Vì sao bot timesheet KHÔNG dùng:** dữ liệu timesheet **có cấu trúc rõ** (ngày → task → giờ) → code lấy **đúng từng ngày**, chính xác 100%, không cần "đoán mẩu nào liên quan"; timesheet phải **đúng tuyệt đối**; dữ liệu công việc **không nên gửi ra ngoài**; và **miễn phí**.
+
+
+---
+
+## 17. Async và kết nối Telegram 2 chiều
+
+### Bot có dùng Async không? — Có (ở lớp Telegram)
+
+**Async** = cách viết để **một chương trình làm nhiều việc "đan xen"** mà không phải đứng chờ. Ví von: **một nhân viên quầy** phục vụ nhiều khách — khách nào đang phải chờ (chờ mạng, chờ AI trả lời), nhân viên quay sang phục vụ khách khác thay vì đứng im.
+
+**Vì sao bot cần:** thư viện Telegram mà bot dùng (`python-telegram-bot`) được viết theo kiểu async. Bot phải **cùng lúc**: chờ tin nhắn mới, xử lý tin đang đến, và **đếm giờ** (tự tắt 23:59, tự tắt sau khi gửi timesheet tối thứ 6) — tất cả trong **một chương trình**.
+
+**Bot dùng async thế nào:**
+
+| Chỗ dùng | Làm gì |
+|---|---|
+| `async def` (44 hàm xử lý lệnh / tin nhắn trong `bot.py`) | Mỗi lệnh (`/status`, `ok`, ghi chú…) là một hàm async |
+| `await asyncio.to_thread(...)` (khoảng 30 chỗ) | Đẩy **việc nặng hoặc phải chờ** — gọi AI, ghi Excel, gửi mail, đọc ghi file — sang **luồng phụ**, để bot **không bị "đứng hình"** và vẫn nhận tin khác |
+| `asyncio.sleep(...)` | **Hẹn giờ không chặn**: tự tắt sau 1 phút khi đã gửi timesheet tuần, canh giờ tự tắt |
+| `async_state_lock()` | Khóa file trạng thái **không chặn bot**, chống đụng nhau với chương trình chốt tuần (`weekly_run.py`) |
+| `asyncio.run(...)` trong `weekly_run.py` | Chương trình chốt tuần (chạy riêng) chỉ dùng async để **gửi tin Telegram** rồi thoát |
+
+- Phần xử lý dữ liệu (ghi chú, Excel, email, ngày phép…) vẫn viết **kiểu thường** cho dễ đọc, dễ kiểm thử — **chỉ lớp nói chuyện với Telegram** là async.
+- **Nếu không có `to_thread`:** trong 2–5 giây chờ AI hay gửi mail, bot sẽ **không phản hồi** gì cả, lệnh khác phải xếp hàng, đồng hồ hẹn giờ chạy trễ.
+
+### Bot lắng nghe lệnh Telegram thế nào — kết nối 2 chiều
+
+Bot dùng cách **"hỏi liên tục" (long polling)**: chương trình trên máy bạn **chủ động hỏi** máy chủ Telegram *"có tin mới không?"*; có thì Telegram trả về ngay, không có thì Telegram **giữ câu hỏi chờ** một lúc rồi mới trả "chưa có" — nên gần như **tức thì** mà không tốn tài nguyên.
+
+```
+ 📱 Điện thoại bạn (app Telegram)
+        │ ① bạn nhắn: "thứ 2 làm dfu pacsdfum-1234"   hoặc  /status
+        ▼
+ ☁️ MÁY CHỦ TELEGRAM ── giữ tin chờ nếu bot đang tắt (tối đa ~24 giờ)
+        ▲                          │
+        │ ② hỏi: "có tin mới?"     │ ③ trả về tin mới
+        │   (HTTPS đi RA,           │
+        │    lặp liên tục)          ▼
+ 💻 MÁY BẠN — bot.py (python)
+        ④ kiểm tra chat_id → KHÔNG phải chủ bot → từ chối
+        ⑤ chọn bộ xử lý: LỆNH (/status, /weeklyrun…) hay TIN THƯỜNG (ghi chú, "ok"…)
+        ⑥ việc nặng (AI, Excel, mail) → luồng phụ (asyncio.to_thread)
+        ⑦ gửi trả lời: sendMessage / sendDocument (HTTPS đi RA)
+        │
+        ▼
+ ☁️ MÁY CHỦ TELEGRAM ──► 📱 điện thoại hiện câu trả lời của bot
+
+ 📅 Riêng weekly_run.py (17:00 thứ 6): CHỈ gửi 1 chiều (sendMessage + file Excel) rồi thoát —
+    không nghe tin nhắn; câu trả lời "ok" của bạn do bot.py nhận.
+```
+
+- **Máy bạn chỉ kết nối RA ngoài** (giống trình duyệt mở web): **không mở cổng nào**, không cần IP tĩnh, không cần cấu hình router / tường lửa.
+- **Tin nhắn lúc bot đang tắt không mất:** Telegram giữ lại (khoảng 24 giờ); bot bật lên sẽ nhận và xử lý (bot đặt `drop_pending_updates=False`).
+- **Token bot = chìa khóa:** ai có token đều có thể nhận tin thay bot → **giữ bí mật** (mục 13).
+- **Một token chỉ cho MỘT chương trình hỏi tin cùng lúc** (chạy 2 bot cùng token → Telegram báo xung đột) → đó là lý do bot **tự chặn chạy trùng**.
+- **Mất mạng:** bot tự thử kết nối lại, chờ tăng dần (10 → 60 giây).
+- **Cách khác (webhook):** Telegram **tự gọi vào** máy chủ của bot mỗi khi có tin — cần địa chỉ web công khai có HTTPS (thường dùng trên VPS / nền tảng serverless). Bot này dùng polling vì chạy trên **máy cá nhân**, không có địa chỉ công khai.
+
+---
+
+## 18. Luồng dữ liệu và kế hoạch phát triển (phase 2)
+
+### Luồng dữ liệu: từ câu bạn gõ tới file Excel
+
+```
+Bạn nhắn tin cho bot
+   │
+   ├──► (1) notes.jsonl ........ NHẬT KÝ THÔ — chép nguyên văn MỌI câu, NGAY KHI NHẬN
+   │                              (kể cả câu sau đó bạn "hủy", câu bị chặn, câu nhắn nhầm)
+   │
+   └──► note_action (AI, hoặc luật dự phòng khi AI lỗi)
+              │  bot hiện "MÌNH HIỂU BRO MUỐN…" (nếu cần) → bạn "ok"
+              ▼
+        (2) parsed_days.json .. DỮ LIỆU ĐÃ CHỐT từng ngày (dự án / task / mô tả / giờ)
+              │
+              │  17:00 thứ 6 · /createdraft · /weeklyrun · "gởi timesheet tới hôm nay"
+              ▼
+        (3) state.json → draft . ẢNH CHỤP cả kỳ cần gửi (+ file xem trước data\preview\)
+              │  "ok" → xem trước email → "ok"
+              ▼
+        (4) Excel output\ ...... BẢN ĐÃ GỬI sếp (file tháng + bản giao có ngày gửi)
+```
+
+| Lớp | Ý nghĩa | Ai đọc nó (code hiện tại) | Thừa không? |
+|---|---|---|---|
+| **(1) `notes.jsonl`** | Nhật ký **nguyên văn** bạn đã gõ gì, lúc nào — bằng chứng khi có sự cố | `/status` (đếm tin hôm nay); và **một đường dự phòng**: lúc soạn nháp, ngày nào **chưa có** trong `parsed_days` thì bot gửi **toàn bộ ghi chú cả kỳ** cho AI đoán | **Thừa ở vai trò "nguồn dữ liệu cho AI"**; **nên giữ** làm nhật ký |
+| **(2) `parsed_days.json`** | **Nguồn sự thật** của các ngày **chưa gửi** — mỗi ngày đã được bạn duyệt | Soạn nháp, `/status`, `/summary`, `/edittimesheet`… | **Không thừa** — lớp quan trọng nhất |
+| **(3) `draft` trong `state.json`** | **Ảnh chụp** dữ liệu cả kỳ lúc tạo nháp → **bản bạn xem trước = đúng bản được gửi** | Xem trước email, tạo file Excel, gửi mail | **Không thừa**, nhưng là **bản sao** của (2) → có thể **lệch** (đã có bản vá: sửa ngày trong kỳ qua bot → tự hủy nháp cũ) |
+| **(4) Excel `output\`** | Bản **đã gửi** sếp | Tính ngày phép, gởi lại (`/resend`), sửa ngày đã gửi | Ngày đã gửi hiện nằm **cả** ở (4) lẫn (2) → `/edittimesheet` phải sửa đồng bộ cả hai |
+
+**Lưu ý khi dùng (cho tới khi phase 2 xử lý):** nếu bạn từng nhắn một câu về một ngày rồi **hủy / nhắn nhầm**, và sau đó **quên nhắn lại** ngày đó → tối thứ 6 bot có thể **đem câu cũ đó đi đoán** cho ngày thiếu thay vì báo thiếu. Khi xem **bản nháp tối thứ 6**, hãy **liếc kỹ những ngày bạn nhớ là chưa nhắn**; thấy lạ thì nhắn lại đúng nội dung ngày đó (bot tự hủy nháp cũ) rồi `/createdraft`.
+
+### Kế hoạch phát triển (phase 2 — chưa làm)
+
+| # | Hạng mục | Vì sao | Mức sửa | Ưu tiên |
+|---|---|---|---|---|
+| **B1** | **Bỏ đường "AI đọc lại `notes.jsonl`"** cho ngày thiếu (trong `prepare_draft` → `pipeline.ai_parse_notes`); ngày thiếu → **hỏi người dùng**. Dọn luôn `pipeline.parse_period` (luồng cũ, **không còn ai gọi**) + cập nhật `selfcheck` (đang kiểm tra hàm `parse_period`) | `notes.jsonl` ghi câu **ngay khi nhận** (trước xác nhận) → có cả câu đã **hủy** / bị chặn / nhắn nhầm. Ngày thiếu → AI đọc cả câu đã hủy → có thể **điền sai thay vì báo thiếu** (đã mô phỏng: AI nhận được câu đã hủy). Chính kiểu "AI đọc lại ghi chú" từng làm bot "ngáo" ở phiên bản đầu | Nhỏ (vài chục dòng) | Vừa — **không âm thầm** (bản nháp vẫn hiện, cần "ok" 2 lần) và hiếm |
+| **B2** | **"Dấu niêm phong" cho bản nháp**: lúc tạo nháp ghi mã băm dữ liệu kỳ trong `parsed_days`; lúc "ok" gửi → so lại, lệch thì **từ chối gửi**, báo `/createdraft` | Bản vá hiện tại chỉ hủy nháp khi sửa **qua bot**; sửa tay file, `/resetnotes`… vẫn có thể làm nháp lệch dữ liệu → **gửi nhầm bản cũ** | Nhỏ–vừa | Vừa |
+| **B3** | **Excel là nguồn sự thật duy nhất cho ngày ĐÃ GỬI**; dọn ngày đã gửi khỏi `parsed_days` | Hiện ngày đã gửi nằm ở 2 nơi, `/edittimesheet` phải sửa đồng bộ cả hai → thêm một chỗ có thể lệch | Vừa–lớn | Thấp — làm sau |
+| **B4** | **Chạy 24/7 trên VPS**: múi giờ (VPS thường để UTC), tắt tự tắt 23:59 + tự tắt sau khi gửi thứ 6, Task Scheduler → cron/systemd, bỏ `schtasks` trong `weekly_run`; **thử gửi mail công ty từ IP VPS** trước | Bot luôn sẵn sàng, không phụ thuộc laptop | Nhỏ (code) + cấu hình server | Tùy nhu cầu — **hỏi công ty** về việc để mật khẩu mail trên server ngoài |
+| **B5** | **Nhiều người dùng (tối đa ~20)**: hướng A (1 bot, dữ liệu + cấu hình riêng theo Telegram ID — đụng ~1/3 code, cần bộ test chống lẫn dữ liệu, API key Gemini riêng mỗi người) hoặc hướng B (mỗi người 1 bot + 1 thư mục — gần như không sửa code, ~100 MB RAM/người) | Dùng chung cho đồng nghiệp | A: lớn · B: rất nhỏ | Tùy nhu cầu — **xin phép công ty trước** (giữ mật khẩu mail + timesheet của người khác). Dung lượng không đáng kể (~10–25 MB/người/năm) |
+
+**Không nằm trong backlog (đã cân nhắc và quyết định KHÔNG làm):**
+- Dịch vụ trí nhớ AI (Supermemory, Mem0, Letta…): không cần — dữ liệu có cấu trúc, bot tự gửi đúng ngữ cảnh (xem phần "Trí nhớ").
+- Chuyển sang Vercel / Cloudflare Workers / GitHub Actions: kiến trúc serverless không hợp bot chạy liên tục + lưu file (phải viết lại phần lớn).
