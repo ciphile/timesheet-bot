@@ -732,6 +732,8 @@ Bro điền bổ sung giúp mình (nhắn như ghi chú bình thường). Điề
 
 **③ Tuần này đã gửi rồi** → bot báo *"Timesheet thứ 6 dd/mm đã gửi trước đó rồi nha bro, tuần này khỏe."*
 
+> **Chốt sớm mà còn thiếu (cập nhật 07-Oct-2026):** nhắn `gởi timesheet tới hôm nay` mà còn ngày thiếu → bot liệt kê ngày thiếu và nhắc *"Bro điền bổ sung (nhắn như ghi chú bình thường), xong nhắn lại "gởi timesheet tới hôm nay" để mình soạn bản nháp. Muốn bỏ qua lỗi: /forcedraft."* → làm đúng như vậy. (Bản cũ gợi ý "nhắn ok/duyệt" — làm theo thì bot báo khó hiểu *"Bản nháp không có dữ liệu tháng nào"* và `/status` có thể báo lỗi đọc; **không gửi sai** nhưng gây rối. Đã sửa.) Nếu lúc đó đang có bản nháp cũ chờ duyệt, bản nháp đó **không bị ghi đè** bằng danh sách câu hỏi.
+
 ### Các câu / lệnh hữu ích quanh việc gửi
 
 | Bạn nhắn / gõ | Tác dụng |
@@ -829,6 +831,23 @@ Mỗi ngày: nhắn ghi chú cho bot
 **Bot chỉ tắt khi:** tới **23:59** (tự tắt, 16:00 hôm sau tự bật lại) — hoặc **gửi xong timesheet tuần này vào T6 / T7 / CN** (tự tắt sau 1 phút) — hoặc bị tắt **từ bên ngoài** (tắt máy, máy ngủ, End task…). Chốt tuần hay gửi mail **chưa xong** thì bot không tắt.
 
 > Bản nháp timesheet **không bao giờ tự hủy** vì chờ lâu — chỉ mất khi bạn nhắn `hủy` / `/deletedraft`, hoặc khi đã gửi.
+
+### 🔒 Bot báo "Dữ liệu ngày … đã THAY ĐỔI sau khi tạo bản nháp"?
+
+Bản nháp là **ảnh chụp** dữ liệu lúc tạo (17:00 thứ 6, `/createdraft`, `/weeklyrun`…). Từ phiên bản 07-Oct-2026, mỗi bản nháp có thêm **dấu niêm phong**: bot ghi lại "dấu vân tay" nội dung từng ngày làm việc của tuần đó. Khi bạn nhắn `ok` (xem trước) và `ok` (gửi), bot **so lại** — dữ liệu ngày nào **đã đổi** kể từ lúc tạo nháp thì bot **KHÔNG gửi** bản cũ:
+```
+• ⚠️ Dữ liệu ngày T4 30/09 đã THAY ĐỔI sau khi tạo bản nháp → bản nháp này đã CŨ.
+  Mình KHÔNG gửi để tránh gửi sai cho sếp.
+• Gõ /createdraft để soạn lại bản nháp theo dữ liệu mới nhất (xem lại file Excel
+  xem trước), rồi 'ok' → 'ok' để gửi.
+```
+**Cách xử lý:** gõ `/createdraft` → xem lại → `ok` → `ok`. Vậy thôi.
+
+- Sửa **qua bot** một ngày trong tuần (nhắn ghi chú, `/edittimesheet`) → bot **tự hủy** bản nháp cũ ngay lúc đó (như trước). Niêm phong bắt **mọi trường hợp còn lại** (sửa tay file dữ liệu, lệnh khác…).
+- Chỉ so **nội dung** các ngày làm việc của **tuần trong bản nháp** (dự án / task / mô tả / giờ). Ghi lại y nguyên nội dung, đổi ngày **ngoài** tuần đó, ngày thứ 7 / CN, lịch lễ → **không** chặn.
+- Áp dụng cả với `/forcesendmail`: *bỏ qua lỗi* không có nghĩa là *gửi dữ liệu cũ*.
+- **Ngày thiếu:** bot báo *"thứ X ngày dd/mm: chưa có task nào"* — **kể cả ngày bạn từng nhắn rồi hủy** (bot không còn đoán ngày thiếu từ ghi chú cũ). Nhắn bù như ghi chú bình thường rồi `/weeklyrun`.
+- Bản nháp tạo **trước khi cập nhật** lên phiên bản này chưa có niêm phong → vẫn gửi như cũ. Nên cập nhật lúc **không có bản nháp đang chờ**, hoặc gõ `/createdraft` một lần sau khi cập nhật.
 
 ---
 
@@ -1077,6 +1096,7 @@ LiveReport <Tháng>_<Năm> -TenBan (<ngày gửi> <tháng gửi>).xlsx
 **❓ Nhắn mà bot không trả lời**
 - Bot chỉ chạy từ **16:00 tới 23:59** (hoặc khi bạn bật tay). Ngoài giờ đó → nhấp đúp `C:\timesheet\start_bot.vbs`, chờ 10 giây, nhắn lại.
 - **Tối thứ 6 / cuối tuần sau khi đã gửi xong timesheet tuần** → bot **tự tắt** (bình thường, xem mục 5). Cần dùng → nhấp đúp `start_bot.vbs`.
+- Nhắn `ok` mà bot báo **"Dữ liệu ngày … đã THAY ĐỔI sau khi tạo bản nháp"** → bình thường: bot đang bảo vệ để **không gửi bản cũ**. Gõ `/createdraft` rồi `ok` → `ok` (mục 5, "🔒").
 - Máy tắt / ngủ / khởi động lại sau 16:00 → bot không tự bật lại → nhấp đúp `start_bot.vbs`.
 - Nhấp đúp `start_bot.vbs` nhiều lần **không sao** — bot tự chặn chạy trùng.
 - 🍎 Mac: bật tay bằng `start_bot.command`; lỗi (nếu có) nằm trong `~/timesheet/data/logs/bot_console.log`.
@@ -1196,6 +1216,8 @@ powershell -NoProfile -Command "$p = Get-CimInstance Win32_Process | Where-Objec
 | Nói lại / đính chính ("thay **các ngày này** thành…") | Thêm **danh sách các ngày** của lần sửa trước → AI hiểu "các ngày này" là ngày nào |
 | Soạn nháp cuối tuần (nếu còn ngày cần AI) | Thêm **~10 ngày làm việc gần nhất** đọc từ file Excel đã gửi → AI hiểu "giống tuần trước / giống hôm qua" |
 
+> **Cập nhật 07-Oct-2026:** dòng "Soạn nháp cuối tuần" ở trên **không còn đúng** — bản nháp giờ chỉ lấy các ngày **bạn đã xác nhận** (`parsed_days`), **không gọi AI** nữa. Ngày nào thiếu → bot **báo thiếu** để bạn nhắn bù.
+
 AI chỉ là **"bộ não xử lý câu chữ"** được gọi lên từng lần; **quyết định cái gì được nhớ, nhớ ở đâu, gửi phần nào cho AI** là việc của code bot.
 
 ### So sánh: để AI tự đọc lại ghi chú cũ vs. bot làm trí nhớ
@@ -1234,6 +1256,20 @@ Với Supermemory và Mem0, **tiền gọi AI (Gemini, OpenAI…) trả riêng**
 
 **Vì sao bot timesheet KHÔNG dùng:** dữ liệu timesheet **có cấu trúc rõ** (ngày → task → giờ) → code lấy **đúng từng ngày**, chính xác 100%, không cần "đoán mẩu nào liên quan"; timesheet phải **đúng tuyệt đối**; dữ liệu công việc **không nên gửi ra ngoài**; và **miễn phí**.
 
+### Còn các bot trading thì sao?
+
+**Bot cào tin tức phục vụ trading** → **không cần** dịch vụ trí nhớ.
+- Lưu mỗi tin vào **cơ sở dữ liệu** (SQLite / PostgreSQL): thời gian, nguồn, mã liên quan, điểm cảm xúc (tốt/xấu); **chống trùng** bằng địa chỉ bài viết.
+- Khi cần AI tóm tắt/đánh giá: **truy vấn đúng** "tin của mã X trong 24 giờ qua" rồi gửi kèm — giống cách bot timesheet gửi "10 ngày gần nhất".
+- Kho tin **rất lớn** cần tìm theo ý nghĩa → tự cài tìm kiếm ngữ nghĩa (vd tiện ích `pgvector` cho PostgreSQL), vẫn không cần dịch vụ ngoài.
+
+**Bot tự động / tư vấn vào lệnh theo phương pháp cài sẵn** (nên vào lệnh không, nên dời Stop Loss / Take Profit…) → **KHÔNG nên** dùng dịch vụ trí nhớ cho **phần ra quyết định**:
+- **Phương pháp** (điều kiện vào lệnh, % rủi ro, cách đặt SL/TP) → viết thành **luật trong code / file cấu hình**, áp **y hệt** mỗi lần.
+- **Trạng thái lệnh** (giá vào, khối lượng, SL, TP đang đặt) → lưu **cơ sở dữ liệu chính xác**, và **đọc lại trực tiếp từ sàn** trước mỗi quyết định.
+- **Giá thị trường** → lấy **thời gian thực** từ API của sàn, không lấy từ "trí nhớ".
+- AI (nếu dùng) chỉ để **diễn giải, giải thích** kết quả của luật — không để AI tự "nhớ" rồi quyết định.
+- Lý do: dịch vụ trí nhớ **tìm theo xác suất** → có thể đưa nhầm **SL cũ, lệnh đã đóng, giá cũ** → sai bằng **tiền thật**. Dịch vụ trí nhớ chỉ hợp cho phần phụ: nhớ **khẩu vị rủi ro, thói quen** của người dùng, lịch sử trò chuyện.
+- ⚠️ Giao dịch / tư vấn tự động có **rủi ro tài chính cao**: chạy thử bằng **tài khoản giả lập** thật lâu, luôn có **giới hạn rủi ro** và **công tắc dừng khẩn cấp**.
 
 ---
 
@@ -1325,6 +1361,8 @@ Bạn nhắn tin cho bot
 
 **Lưu ý khi dùng (cho tới khi phase 2 xử lý):** nếu bạn từng nhắn một câu về một ngày rồi **hủy / nhắn nhầm**, và sau đó **quên nhắn lại** ngày đó → tối thứ 6 bot có thể **đem câu cũ đó đi đoán** cho ngày thiếu thay vì báo thiếu. Khi xem **bản nháp tối thứ 6**, hãy **liếc kỹ những ngày bạn nhớ là chưa nhắn**; thấy lạ thì nhắn lại đúng nội dung ngày đó (bot tự hủy nháp cũ) rồi `/createdraft`.
 
+> ✅ **Đã xử lý 07-Oct-2026 (B1 + B2):** bot **không còn** đem ghi chú cũ cho AI đoán ngày thiếu — ngày nào chưa xác nhận thì bot **báo thiếu** (kể cả ngày bạn từng nhắn rồi hủy). Bản nháp có thêm **dấu niêm phong**: dữ liệu đổi sau khi tạo nháp → bot **không gửi** bản cũ, báo đúng ngày đã đổi và nhắc `/createdraft`. Lưu ý ở trên không còn cần thiết.
+
 ### Kế hoạch phát triển (phase 2 — chưa làm)
 
 | # | Hạng mục | Vì sao | Mức sửa | Ưu tiên |
@@ -1334,6 +1372,10 @@ Bạn nhắn tin cho bot
 | **B3** | **Excel là nguồn sự thật duy nhất cho ngày ĐÃ GỬI**; dọn ngày đã gửi khỏi `parsed_days` | Hiện ngày đã gửi nằm ở 2 nơi, `/edittimesheet` phải sửa đồng bộ cả hai → thêm một chỗ có thể lệch | Vừa–lớn | Thấp — làm sau |
 | **B4** | **Chạy 24/7 trên VPS**: múi giờ (VPS thường để UTC), tắt tự tắt 23:59 + tự tắt sau khi gửi thứ 6, Task Scheduler → cron/systemd, bỏ `schtasks` trong `weekly_run`; **thử gửi mail công ty từ IP VPS** trước | Bot luôn sẵn sàng, không phụ thuộc laptop | Nhỏ (code) + cấu hình server | Tùy nhu cầu — **hỏi công ty** về việc để mật khẩu mail trên server ngoài |
 | **B5** | **Nhiều người dùng (tối đa ~20)**: hướng A (1 bot, dữ liệu + cấu hình riêng theo Telegram ID — đụng ~1/3 code, cần bộ test chống lẫn dữ liệu, API key Gemini riêng mỗi người) hoặc hướng B (mỗi người 1 bot + 1 thư mục — gần như không sửa code, ~100 MB RAM/người) | Dùng chung cho đồng nghiệp | A: lớn · B: rất nhỏ | Tùy nhu cầu — **xin phép công ty trước** (giữ mật khẩu mail + timesheet của người khác). Dung lượng không đáng kể (~10–25 MB/người/năm) |
+
+> ✅ **Cập nhật 07-Oct-2026: B1 và B2 ĐÃ LÀM** (cả bản chính lẫn gói chia sẻ). B3, B4, B5 vẫn chờ.
+
+> ✅ **B6 cũng đã làm (07-Oct-2026):** chốt sớm bị báo thiếu giờ hướng dẫn đúng cách làm tiếp (nhắn bù → nhắn lại "gởi timesheet tới hôm nay"). Chỉ đổi `bot.py`.
 
 **Không nằm trong backlog (đã cân nhắc và quyết định KHÔNG làm):**
 - Dịch vụ trí nhớ AI (Supermemory, Mem0, Letta…): không cần — dữ liệu có cấu trúc, bot tự gửi đúng ngữ cảnh (xem phần "Trí nhớ").
