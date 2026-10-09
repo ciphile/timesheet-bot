@@ -1356,14 +1356,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "Các ngày tới hôm nay đã gửi sếp rồi bro. Sửa ngày đã "
                         "gửi: /edittimesheet → rồi /resend để gởi lại bản mới.")
                 elif result.get("status") == "need_info":
+                    # (07-Oct, B6) KHÔNG ghi `result` (danh sách câu hỏi) vào ô bản
+                    # nháp: trước đây 'ok' sau đó báo "không có dữ liệu tháng nào" và
+                    # /status lỗi. prepare_draft đã tự lưu trạng thái đúng.
                     qs = result.get("questions", [])
-                    state["draft"] = result
-                    state_mod.save_state(state)
                     await _reply_long(update,
                         f"Còn {len(qs)} vấn đề cần giải quyết:\n"
                         + "\n".join(f"• {q}" for q in qs)
-                        + "\n\nSửa xong nhắn ok/duyệt, hoặc "
-                        "'cứ gởi đi' để bỏ qua.")
+                        + "\n\nBro điền bổ sung (nhắn như ghi chú bình thường), xong "
+                        "nhắn lại \"gởi timesheet tới hôm nay\" để mình soạn bản nháp. "
+                        "Muốn bỏ qua lỗi: /forcedraft.")
                 else:
                     # prepare_draft ĐÃ tự lưu bản nháp thật vào state. KHÔNG ghi đè
                     # bằng `result` (có danh sách file kiểu Path → lỗi khi lưu JSON,

@@ -19,6 +19,7 @@ weekly_run dùng (bot.py có ngữ cảnh async riêng nên tự gửi).
 """
 
 import asyncio
+import hashlib
 import json
 from datetime import date, timedelta
 
@@ -113,32 +114,28 @@ def prepare_draft(config, state: dict = None, force: bool = False,
 
     ph_entries = pipeline.autofill_ph_entries(period["ph_map"], config)
 
-    # Đọc ghi chú: từ đầu kỳ tới HÔM NAY (câu trả lời backfill nhắn
-    # thứ 7/CN vẫn phải được đọc dù kỳ kết thúc thứ 6)
-    notes = notes_store.read_notes_between(
-        period["start"], max(send_day, date.today()))
-    log.info("Kỳ %s -> %s: %d working day cần dữ liệu, %d ngày lễ, "
-             "%d ghi chú.", period["start"], period["end"],
-             len(period["expected_days"]), len(period["ph_map"]), len(notes))
+    log.info("Kỳ %s -> %s: %d working day cần dữ liệu, %d ngày lễ.",
+             period["start"], period["end"],
+             len(period["expected_days"]), len(period["ph_map"]))
 
-    # Ngày nào đã parse + chốt ngay trong ngày thì DÙNG LẠI (nhất quán
-    # với cái người dùng đã xác nhận, và đỡ tốn lượt AI). Chỉ gọi AI cho
-    # những ngày chưa có kết quả.
+    # 🔒 NIÊM PHONG (07-Oct): chụp dấu vân tay từng ngày TRƯỚC khi đọc dữ
+    # liệu. Lúc xem trước / gửi so lại — dữ liệu đổi sau khi tạo nháp thì
+    # KHÔNG gửi bản nháp cũ (xem _seal_block).
+    seal = make_draft_seal(period["expected_days"])
+
+    # Dữ liệu bản nháp = CHỈ các ngày người dùng ĐÃ XÁC NHẬN (parsed_days).
+    # (Sửa 07-Oct: BỎ bước "ngày thiếu → gửi cả notes.jsonl cho AI đoán".
+    # notes.jsonl ghi MỌI câu ngay khi nhận — kể cả câu đã HỦY / nhắn nhầm —
+    # nên AI có thể điền sai thay vì báo thiếu. Ngày thiếu giờ được
+    # validator.find_issues báo "thứ X ngày dd/mm: chưa có task nào".)
     cached_entries, cached_days = daily_store.entries_for_days(
         period["expected_days"])
     missing_days = [d for d in period["expected_days"]
                     if d not in set(cached_days)]
-    log.info("Đã có sẵn %d ngày chốt trong ngày; cần AI cho %d ngày.",
+    log.info("Đã có sẵn %d ngày đã chốt; thiếu %d ngày (sẽ hỏi lại).",
              len(cached_days), len(missing_days))
 
     entries, problems = [], []
-    if missing_days:
-        session = f"run_{send_day.isoformat()}"
-        parsed = pipeline.ai_parse_notes(
-            notes, missing_days, config, state, session)
-        entries, problems = pipeline.postprocess_ai_days(
-            parsed, missing_days, config, state, ph_map=period["ph_map"])
-
     combined = ph_entries + cached_entries + entries
     issues = validator.find_issues(
         combined, period["expected_days"], period["ph_map"], config)
@@ -158,6 +155,8 @@ def prepare_draft(config, state: dict = None, force: bool = False,
         audit("PREPARE_FORCE", f"{send_day}: bỏ qua {len(questions)} vấn đề")
 
     draft = pipeline.build_draft(send_day, period, combined)
+    if seal:
+        draft["seal"] = seal
     state["draft"] = draft
     state["conversation"] = None
     state_mod.save_state(state)
@@ -167,6 +166,69 @@ def prepare_draft(config, state: dict = None, force: bool = False,
     return {"status": "ready", "send_day": send_day.isoformat(),
             "preview": pipeline.render_preview(draft, config),
             "files": files, "hold": bool(state.get("hold"))}
+
+
+# ---------------------------------------------------------------------
+# NIÊM PHONG BẢN NHÁP (07-Oct-2026)
+# Bản nháp là ẢNH CHỤP dữ liệu lúc tạo. Nếu parsed_days đổi SAU đó (sửa tay
+# file, lệnh khác...), "ok" có thể gửi bản CŨ. Niêm phong = dấu vân tay từng
+# ngày làm việc của kỳ lúc tạo nháp; lúc xem trước / gửi so lại, lệch → chặn.
+# ---------------------------------------------------------------------
+def _day_fingerprint(record) -> str:
+    """Dấu vân tay NỘI DUNG 1 ngày trong parsed_days: chỉ tính các dòng
+    (dự án / task / mô tả / giờ) — BỎ "parsed_at" / "summary" (thông tin phụ,
+    đổi mỗi lần ghi). Ngày chưa có dữ liệu → "-"."""
+    if not record:
+        return "-"
+    rows = record.get("entries") if isinstance(record, dict) else record
+    raw = json.dumps(rows, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def make_draft_seal(days) -> dict:
+    """{ngày ISO: dấu vân tay} các ngày làm việc của kỳ, lúc tạo nháp.
+    Lỗi bất ngờ → None (bản nháp không niêm phong = chạy như trước)."""
+    try:
+        data = daily_store.load_all()
+        return {d.isoformat(): _day_fingerprint(data.get(d.isoformat()))
+                for d in days}
+    except Exception as e:  # noqa: BLE001
+        log.warning("Không tạo được niêm phong bản nháp (%s) — bỏ qua.", e)
+        return None
+
+
+def draft_seal_changes(draft: dict) -> list:
+    """Các ngày có dữ liệu ĐÃ ĐỔI kể từ lúc tạo nháp ([] = khớp).
+    Bản nháp cũ (chưa có niêm phong) hoặc lỗi bất ngờ khi kiểm → [] — KHÔNG
+    chặn, chạy như trước: niêm phong chỉ chặn khi CHẮC CHẮN có thay đổi."""
+    seal = (draft or {}).get("seal")
+    if not seal:
+        return []
+    try:
+        data = daily_store.load_all()
+        return sorted(date.fromisoformat(iso) for iso, fp in seal.items()
+                      if _day_fingerprint(data.get(iso)) != fp)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Không kiểm được niêm phong bản nháp (%s) — bỏ qua.", e)
+        return []
+
+
+def _seal_block(draft: dict):
+    """Kết quả need_info nếu bản nháp đã CŨ so với dữ liệu; None nếu khớp."""
+    changed = draft_seal_changes(draft)
+    if not changed:
+        return None
+    thu = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
+    days_txt = ", ".join(f"{thu[d.weekday()]} {d:%d/%m}" for d in changed)
+    log.warning("Bản nháp CŨ — dữ liệu đổi sau khi tạo nháp (%s): KHÔNG gửi.",
+                days_txt)
+    audit("DRAFT_SEAL_MISMATCH", days_txt)
+    return {"status": "need_info", "send_day": draft.get("send_day"),
+            "questions": [
+                f"⚠️ Dữ liệu ngày {days_txt} đã THAY ĐỔI sau khi tạo bản nháp "
+                "→ bản nháp này đã CŨ. Mình KHÔNG gửi để tránh gửi sai cho sếp.",
+                "Gõ /createdraft để soạn lại bản nháp theo dữ liệu mới nhất "
+                "(xem lại file Excel xem trước), rồi 'ok' → 'ok' để gửi."]}
 
 
 def _merged_month_entries(month_key: str, draft: dict, config) -> list:
@@ -404,6 +466,10 @@ def prepare_send_preview(config, state: dict, force: bool = False,
         raise OrchestratorError(
             "Bản nháp không có dữ liệu tháng nào — không gửi mail rỗng.")
 
+    _sb = _seal_block(draft)          # 🔒 07-Oct: dữ liệu đổi sau khi tạo nháp
+    if _sb:
+        return _sb
+
     # Validation cấu trúc parsed_days (như finalize)
     _hpd = config.get("hours_per_day") or 8
     _errs = validator.validate_parsed_structure(daily_store.load_all(), _hpd)
@@ -462,6 +528,13 @@ def finalize_and_send(config, state: dict, force: bool = False,
             "— KHÔNG gửi để tránh mail rỗng cho sếp. Xóa nháp và soạn "
             "lại: nhắn 'gởi timesheet tới hôm nay' đúng ngày cần chốt."
         )
+
+    # 🔒 NIÊM PHONG (07-Oct): dữ liệu đổi sau khi tạo nháp → KHÔNG gửi bản
+    # cũ. Áp cả khi force (bỏ qua lỗi ≠ gửi dữ liệu cũ). Kiểm TRƯỚC khi ghi
+    # bất kỳ file Excel nào.
+    _sb = _seal_block(draft)
+    if _sb:
+        return _sb
 
     # CHECKPOINT: validate CẤU TRÚC parsed_days TRƯỚC KHI GỬI MAIL.
     # Lớp chặn cuối — không gửi timesheet hỏng cho sếp (date lệch,

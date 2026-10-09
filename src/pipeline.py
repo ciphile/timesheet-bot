@@ -100,6 +100,9 @@ def _history_for_prompt(history: list) -> str:
 
 # ------------------------------ AI parse -----------------------------
 
+# (07-Oct-2026) build_parse_prompt / recent_history KHÔNG còn được gọi trong
+# luồng chính (đã bỏ parse_period, ai_parse_notes không còn được gọi —
+# AI không đọc lại notes.jsonl nữa). Giữ lại; selfcheck vẫn kiểm recent_history.
 def build_parse_prompt(notes: list, expected_days: list, config,
                        known_desc: dict, history: list = None,
                        pending_questions: list = None) -> str:
@@ -299,6 +302,9 @@ TRẢ VỀ JSON đúng cấu trúc:
   "questions": ["câu hỏi tiếng Việt", ...]}}"""
 
 
+# ⚠️ (07-Oct-2026) ai_parse_notes KHÔNG CÒN ĐƯỢC GỌI: soạn nháp không cho AI đọc lại
+# notes.jsonl để đoán ngày thiếu nữa (notes có cả câu đã HỦY). ĐỪNG nối lại.
+# Chỉ giữ để lỡ chép thiếu file (orchestrator.py bản cũ) thì bot không bị sập.
 def ai_parse_notes(notes: list, expected_days: list, config, state: dict,
                    session: str) -> dict:
     history = recent_history(expected_days[0], config) if expected_days else []
@@ -493,112 +499,6 @@ def open_window(today: date, state: dict, config) -> dict:
     ph_map = sg_holidays.workday_holidays(start, end_of_week, config=config)
     return {"start": start, "end": end_of_week, "ph_map": ph_map,
             "days": [d for d in workdays if d not in ph_map]}
-
-
-def parse_period(today: date, config, state: dict) -> dict:
-    """[KHÔNG CÒN DÙNG TRONG LUỒNG CHÍNH — GIỮ LÀM DỰ PHÒNG]
-
-    ⚠️ LỊCH SỬ & LÝ DO THAY ĐỔI (22-Sep-2026):
-
-    HÀM NÀY TỪNG LÀ TRÁI TIM của bot — mỗi tin nhắn ghi chú đều gọi nó
-    để parse LẠI TOÀN BỘ ghi chú của cả kỳ (đọc hết notes.jsonl từ đầu
-    kỳ tới hôm nay, gửi cả đống cho AI).
-
-    Vì sao ban đầu thiết kế parse-lại-cả-kỳ:
-      - "thêm task" → tự chia lại giờ (AI thấy mọi task của ngày)
-      - "câu sửa đè tin cũ" → AI thấy cả câu cũ lẫn câu sửa
-      - "cả 2 tuần vừa rồi làm X" → AI thấy toàn bộ để xử câu đa ngày
-
-    VẤN ĐỀ khiến phải thay:
-      - Đọc cả đống notes cũ mỗi lần → prompt DÀI → AI (nhất là bản
-        lite) DỄ LÚ / LẪN LỘN / NGÁO: hiểu nhầm ngày, tái phát lệnh
-        xóa cũ, đọc nhầm tombstone... (xem các sự cố trong PROJECT.md)
-      - notes.jsonl phình to → càng ngày prompt càng nặng
-      - Phụ thuộc notes: không clean được notes giữa kỳ
-
-    THAY BẰNG (từ 22-Sep-2026): module note_action.py
-      - Mỗi tin → AI bóc thành ACTION rõ ràng (ADD/REPLACE/DELETE...)
-        CHỈ đọc 1 TIN, không đọc lịch sử notes → prompt ngắn, ít ngáo
-      - Thao tác thẳng parsed_days (CRUD), có validate chặt + xác nhận
-      - Chia giờ bằng validator.split_hours (rule rõ ràng)
-      - notes.jsonl giờ chỉ là LOG THÔ, không dùng để quyết định action
-
-    HÀM NÀY GIỮ LẠI để:
-      - Dự phòng nếu cần rollback về cách cũ
-      - Tham chiếu logic build_parse_prompt / recent_history (còn dùng
-        bởi finalize_and_send khi backfill missing_days lúc gửi thứ 6)
-    KHÔNG XÓA để không phá selfcheck và các hàm phụ thuộc chung.
-
-    ---
-    (Docstring gốc)
-    Parse LẠI toàn bộ ghi chú của kỳ đang mở. Trả dict:
-      window/entries/outside/delete_in/delete_out/problems.
-    """
-    import notes_store
-    import state as state_mod
-
-    window = open_window(today, state, config)
-    # Dọn dấu vết xóa lỗi thời TRƯỚC khi đọc notes cho AI:
-    # ngày nào đã có ghi chú thật mới hơn tombstone/lệnh xóa → dọn đi
-    # để AI không hiểu nhầm là muốn xóa.
-    try:
-        notes_store.cleanup_stale_delete_traces()
-    except Exception as _e:  # noqa: BLE001 — dọn hỏng không được chặn parse
-        log.debug("cleanup_stale_delete_traces lỗi: %s", _e)
-    notes = notes_store.read_notes_between(window["start"], today)
-    if not notes:
-        return {"window": window, "entries": [], "outside": [],
-                "delete_in": [], "delete_out": [], "problems": []}
-
-    history = recent_history(window["start"], config)
-    prompt = build_parse_prompt(notes, window["days"], config,
-                               state.get("desc_by_project", {}),
-                               history=history,
-                               pending_questions=state_mod.pending_questions(
-                                   state, today))
-    parsed = ai_client.generate_json(prompt, purpose="daily",
-                                     config=config,
-                                     session=f"win_{today.isoformat()}")
-    entries, problems, outside = postprocess_ai_days(
-        parsed, window["days"], config, state,
-        ph_map=window["ph_map"], collect_outside=True,
-        notes=notes)
-
-    in_set = set(window["days"])
-    delete_in, delete_out = [], []
-
-    # GUARD chống AI tự suy diễn lệnh xóa: chỉ chấp nhận delete_days khi
-    # ghi chú MỚI NHẤT của người dùng thực sự có TỪ KHÓA XÓA. AI đôi khi tự
-    # đưa ngày vào delete_days do hiểu nhầm ngữ cảnh (vd 2 ngày cùng
-    # project) — điều này gây xóa nhầm dữ liệu.
-    DELETE_KEYWORDS = ("xóa", "xoá", "bỏ ngày", "bỏ task", "xoá ngày",
-                       "xóa ngày", "delete", "bỏ dữ liệu", "xóa dữ liệu",
-                       "bỏ hết", "xóa hết", "thôi xóa")
-    latest_note = notes_store.get_latest_note() if notes else None
-    latest_text = (latest_note or {}).get("text", "").lower()
-    has_delete_intent = any(kw in latest_text for kw in DELETE_KEYWORDS)
-
-    raw_deletes = parsed.get("delete_days", [])
-    if raw_deletes and not has_delete_intent:
-        log.warning("AI trả delete_days=%s nhưng ghi chú mới nhất KHÔNG có "
-                    "từ khóa xóa — BỎ QUA để tránh xóa nhầm.", raw_deletes)
-        raw_deletes = []
-
-    for iso in raw_deletes:
-        try:
-            d = date.fromisoformat(str(iso))
-        except (ValueError, TypeError) as e:
-            log.debug("AI trả ngày xóa không parse được %r (%s).", iso, e)
-            problems.append(f"AI trả ngày xóa không hiểu được: {iso!r}")
-            continue
-        (delete_in if d in in_set else delete_out).append(d)
-
-    # NHỚ câu vừa hỏi (chỉ có hiệu lực trong ngày hôm nay)
-    state_mod.remember_questions(state, problems, today)
-
-    return {"window": window, "entries": entries, "outside": outside,
-            "delete_in": delete_in, "delete_out": delete_out,
-            "problems": problems}
 
 
 def describe_day(entries: list) -> str:
