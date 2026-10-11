@@ -542,8 +542,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     state_mod.save_state(state)
                     audit("COMPOSE_CANCELLED", f"by {'command' if is_command else 'cancel'}")
                     if is_cancel:
+                        _pn = (len(state.get("pending_notes") or [])
+                               if awaiting_val == "past_edit_confirm" else 0)
                         await update.effective_message.reply_text(
-                            "Đã hủy. Trở lại bình thường — nhắn gì cũng được.")
+                            "Đã hủy. Trở lại bình thường — nhắn gì cũng được."
+                            + (f"\n📥 Còn {_pn} tin chờ (AI lỗi lúc nhắn) → /retrynotes"
+                               if _pn else ""))
                         return
                     # là lệnh / → clear rồi để lệnh tự chạy (không return,
                     # nhưng conv đã clear nên các handler dưới xử lý đúng)
@@ -700,6 +704,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         parts += ["━━━━━━━━━━━━━━━━━━",
                                   "📤 MUỐN GỬI LẠI CHO SẾP: gõ /resend (hoặc nhắn 'gởi lại') → xem trước rồi mới gửi",
                                   "  (KHÔNG dùng /sendmail hay /createdraft cho tuần đã gửi)"]
+                    _pn = len(state.get("pending_notes") or [])
+                    if _pn:            # (11-Oct) còn tin chờ → nhắc xử lý tiếp
+                        parts += ["━━━━━━━━━━━━━━━━━━",
+                                  f"📥 Còn {_pn} tin chờ (AI lỗi lúc nhắn) → /retrynotes"]
                     await _reply_long(update, "\n".join(parts))
                     return
                 elif normalized in CANCEL_COMPOSE_PHRASES:
@@ -1407,7 +1415,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-async def _handle_note_action(update, state: dict, text: str, sent_day=None):
+async def _handle_note_action(update, state: dict, text: str, sent_day=None,
+                              from_retry: bool = False):
     """Xử lý 1 tin ghi chú bằng note_action (bóc action → validate →
     ghi luôn NẾU không cần xác nhận, HOẶC hỏi xác nhận trước).
 
@@ -1427,6 +1436,12 @@ async def _handle_note_action(update, state: dict, text: str, sent_day=None):
     if not_act or not acts:
         # Không phải action timesheet (ok/cảm ơn...) → không làm gì thêm
         # (các phrase điều khiển đã được handler phía trên bắt rồi)
+        if from_retry:      # (11-Oct) /retrynotes: nói rõ là KHÔNG ghi gì
+            await update.effective_message.reply_text(
+                "AI đọc lại: câu này KHÔNG có việc timesheet nào → đã BỎ khỏi hàng "
+                "chờ, KHÔNG ghi gì. Nếu đó là việc của 1 ngày, nhắn lại rõ: "
+                "'ngày DD/MM: task + mã ticket'.")
+            return
         await update.effective_message.reply_text("Đã ghi chú nha bro.")
         return
 
@@ -1499,10 +1514,12 @@ def _queue_pending_note(state: dict, text: str, reason: str, sent_day=None) -> i
     bị xóa sau khi gửi. Nay: hàng chờ riêng trong state + CHẶN tạo nháp/
     gửi cho tới khi xử lý hết (/retrynotes)."""
     q = list(state.get("pending_notes") or [])
-    if not any(p.get("text") == text for p in q):
+    _sd = (sent_day or date.today()).isoformat()
+    # (11-Oct) trùng = cùng chữ VÀ cùng ngày nhắn ("hôm nay họp" T4 ≠ T5)
+    if not any(p.get("text") == text and p.get("sent_day") == _sd for p in q):
         q.append({"text": text, "reason": reason,
                   "at": datetime.now().isoformat(timespec="minutes"),
-                  "sent_day": (sent_day or date.today()).isoformat()})
+                  "sent_day": _sd})
     state["pending_notes"] = q
     state_mod.save_state(state)
     audit("NOTE_PENDING", f"{len(q)} tin chờ: {text[:60]}")
@@ -1824,7 +1841,8 @@ async def cmd_create_draft(update: Update,
         await _reply_long(update,
             f"⚠️ Còn {len(qs)} vấn đề validation:\n"
             + "\n".join(f"• {q}" for q in qs)
-            + "\n\nDùng /forcedraft để bỏ qua và tạo thẳng.")
+            + ("" if result.get("source") == "pending_confirm"
+               else "\n\nDùng /forcedraft để bỏ qua và tạo thẳng."))
     elif status == "ready":
         preview = result.get("preview", "")
         await _reply_long(update,
@@ -2098,6 +2116,13 @@ async def cmd_retry_notes(update: Update,
         await update.effective_message.reply_text(
             f"Đã BỎ tin: “{dropped['text']}” (không ghi gì). Còn {len(q)} tin chờ.")
         return
+    if (state.get("conversation") or {}).get("awaiting") == "past_edit_confirm":
+        # (11-Oct) lấy tin kế lúc này sẽ ĐÈ MẤT bản xem trước đang chờ 'ok'
+        await update.effective_message.reply_text(
+            "⏸ Bro đang có 1 bản xem trước GHI/SỬA timesheet chờ trả lời (tin phía "
+            "trên). Nhắn 'ok' để ghi hoặc 'hủy' để bỏ câu đó trước, rồi /retrynotes "
+            f"tiếp nhé — mình CHƯA đụng tin chờ nào (còn {len(q)} tin).")
+        return
     item = q.pop(0)
     state["pending_notes"] = q
     state_mod.save_state(state)
@@ -2105,12 +2130,35 @@ async def cmd_retry_notes(update: Update,
     await update.effective_message.reply_text(
         f"Đang xử lý lại (còn {len(q)} tin khác chờ):\n“{item['text']}”")
     _sd = item.get("sent_day")
-    await _handle_note_action(update, state, item["text"],
-                              sent_day=date.fromisoformat(_sd) if _sd else None)
-    left = len(state_mod.load_state().get("pending_notes") or [])
-    if left:
+    try:
+        await _handle_note_action(update, state, item["text"],
+                                  sent_day=date.fromisoformat(_sd) if _sd else None,
+                                  from_retry=True)
+    except _TG_NET_ERRORS:
+        raise       # lỗi mạng Telegram lúc TRẢ LỜI: việc ghi có thể đã xong → KHÔNG trả tin về hàng chờ
+    except Exception as e:  # noqa: BLE001 — (11-Oct) lỗi lạ → KHÔNG làm mất tin
+        log.exception("/retrynotes xử lý lỗi lạ")
+        _st = state_mod.load_state()
+        _q = list(_st.get("pending_notes") or [])
+        if not any(p.get("text") == item.get("text")
+                   and p.get("sent_day") == item.get("sent_day") for p in _q):
+            _q.insert(0, item)
+        _st["pending_notes"] = _q
+        state_mod.save_state(_st)
         await update.effective_message.reply_text(
-            f"📥 Còn {left} tin chờ — nhắn /retrynotes để xử lý tin kế.")
+            f"⚠️ Lỗi lạ khi xử lý lại ({type(e).__name__}) — tin VẪN GIỮ trong "
+            "hàng chờ. Thử lại /retrynotes sau, hoặc '/retrynotes bỏ' rồi tự gõ lại.")
+        return
+    _st = state_mod.load_state()
+    left = len(_st.get("pending_notes") or [])
+    if left:
+        if (_st.get("conversation") or {}).get("awaiting") == "past_edit_confirm":
+            await update.effective_message.reply_text(
+                f"📥 Còn {left} tin chờ — trả lời 'ok'/'hủy' bản xem trước ở trên "
+                "TRƯỚC, rồi nhắn /retrynotes để xử lý tin kế.")
+        else:
+            await update.effective_message.reply_text(
+                f"📥 Còn {left} tin chờ — nhắn /retrynotes để xử lý tin kế.")
 
 
 async def cmd_leave_bal(update: Update,
@@ -2531,7 +2579,8 @@ async def cmd_weekly_run(update: Update,
             await _reply_long(update,
                 f"⚠️ Còn {len(qs)} vấn đề cần giải quyết:\n"
                 + "\n".join(f"• {q}" for q in qs)
-                + "\n\nSửa xong nhắn /weeklyrun lại, hoặc /forcesendmail để bỏ qua.")
+                + ("" if result.get("source") == "pending_confirm"
+                   else "\n\nSửa xong nhắn /weeklyrun lại, hoặc /forcesendmail để bỏ qua."))
 
         elif status == "ready":
             # Báo cáo RÚT GỌN dạng control total (không in preview dài)

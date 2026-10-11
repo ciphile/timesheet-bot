@@ -73,6 +73,12 @@ def prepare_draft(config, state: dict = None, force: bool = False,
     if state_mod.already_sent(state, send_day):
         return {"status": "already_sent", "send_day": send_day.isoformat()}
 
+    # (11-Oct) Đang có bản xem trước GHI/SỬA chờ 'ok' → KHÔNG soạn nháp (xem
+    # pending_confirm_block). Áp cả khi force. KHÔNG ghi gì vào state.
+    _pc = pending_confirm_block(state)
+    if _pc:
+        return {**_pc, "send_day": send_day.isoformat()}
+
     _pq = _pending_notes_block(state, force)
     if _pq:
         return {**_pq, "send_day": send_day.isoformat()}
@@ -356,11 +362,38 @@ def _pending_notes_block(state: dict, force: bool):
     q = state.get("pending_notes") or []
     if not q or force:
         return None
-    return {"status": "need_info", "questions": [
+    return {"status": "need_info", "source": "pending_notes", "questions": [
         f"Còn {len(q)} tin nhắn CHƯA xử lý (AI lỗi mạng lúc bro nhắn) — "
         "timesheet có thể THIẾU:",
         *[f"“{p['text']}”" for p in q],
         "Nhắn /retrynotes để xử lý lại (hoặc /retrynotes bỏ nếu không cần)."]}
+
+
+def pending_confirm_block(state: dict):
+    """(11-Oct-2026) Người dùng đang có 1 bản xem trước GHI/SỬA timesheet chờ
+    'ok' (awaiting = past_edit_confirm) → trả need_info, KHÔNG soạn nháp.
+    Lý do: soạn nháp xóa câu hỏi đang treo → chữ 'ok' người dùng gõ để duyệt
+    câu SỬA bị hiểu thành 'duyệt bản nháp' → 'ok' lần 2 GỬI BẢN CHƯA SỬA.
+    Không có câu hỏi treo → None (chạy như trước)."""
+    conv = (state or {}).get("conversation") or {}
+    if not isinstance(conv, dict) or conv.get("awaiting") != "past_edit_confirm":
+        return None
+    days_txt = ""
+    try:
+        thu = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
+        days = sorted({date.fromisoformat(str(a["day"]))
+                       for a in (conv.get("note_actions") or [])
+                       if isinstance(a, dict) and a.get("day")})
+        days_txt = ", ".join(f"{thu[d.weekday()]} {d:%d/%m}" for d in days)
+    except Exception:  # noqa: BLE001 — chỉ để hiển thị, lỗi thì bỏ phần ngày
+        days_txt = ""
+    audit("DRAFT_WAIT_CONFIRM", days_txt)
+    return {"status": "need_info", "source": "pending_confirm", "questions": [
+        "Bro còn 1 bản xem trước GHI/SỬA timesheet CHƯA trả lời"
+        + (f" ({days_txt})" if days_txt else "")
+        + " — mình CHƯA soạn bản nháp, để khỏi xóa mất câu hỏi đó.",
+        "Nhắn 'ok' để ghi bản đó (hoặc 'hủy' để bỏ), rồi soạn nháp lại: "
+        "/weeklyrun hoặc /createdraft."]}
 
 
 def _leave_summary_safe(config) -> str:
