@@ -944,6 +944,12 @@ Ngày **đã gửi** → bot sửa **cả file Excel** (có backup bản cũ) �
 | `/retrynotes xem` | xem danh sách tin đang chờ |
 | `/retrynotes bỏ` | bỏ tin đầu (khi bạn đã tự gõ lại câu khác) |
 
+> **Cập nhật 11-Oct-2026 — hàng chờ chạy trơn hơn:**
+> - **17:00 thứ 6 (hoặc khi chạy bù thứ 7 / CN), nếu AI đã ổn lại → bot TỰ xử lý lại các tin chờ** trước khi soạn nháp. Bot chỉ tự ghi vào **ngày còn trống**. Tin nào đụng ngày đã có dữ liệu, ngày đã gửi, hoặc AI không hiểu → bot **dừng ở tin đó**, giữ nguyên nó và các tin sau, rồi nhắn lý do → bạn `/retrynotes`. Tin 17:00 có dòng *"🔁 AI đã ổn lại → mình TỰ xử lý…"* liệt kê ngày đã ghi — xem kỹ trong bản nháp trước khi `ok`.
+> - **Đang có bản xem trước chờ `ok`** (ghi/sửa timesheet) → `/retrynotes` **không lấy tin kế** (trả lời `ok`/`hủy` trước); 17:00, `/weeklyrun`, `/createdraft`, `/forcedraft` **không soạn nháp** và nhắc lại bản xem trước đó. Trả lời `ok`/`hủy` rồi `/weeklyrun`.
+> - Cùng 1 câu nhắn ở **2 ngày khác nhau** (vd "hôm nay họp cả ngày") giờ được giữ **đủ cả 2** trong hàng chờ.
+> - Lưu ý khi AI lỗi: câu nào cũng phải `ok` — **trả lời ngay**. Nếu chưa `ok` mà nhắn câu mới, bot hiểu câu mới là *"sửa lại"* bản xem trước cũ (câu cũ bị bỏ).
+
 ---
 
 ## 9b. Bot gọi AI thế nào
