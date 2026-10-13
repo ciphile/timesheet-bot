@@ -251,9 +251,12 @@ Trong Notepad đang mở `C:\timesheet\config\settings.json`, **chỉ sửa ph�
 | `"company_mail_host"` | Server mail công ty (hỏi người chia sẻ) | `"mail.congty.com"` |
 | `"bcc_when_company"` | Gửi bằng mail công ty thì gửi **bản sao ẩn** tới đâu (vd Gmail riêng). Để `""` nếu không cần | `"minh.rieng@gmail.com"` |
 | `"file_name_pattern"` | Tên file Excel gửi sếp → **chỉ đổi chữ `TenBan`** thành tên bạn | `"LiveReport {file_month}_{file_year} -Minh ({send_day} {send_month}).xlsx"` |
+| `"bot_goi_ban_la"` | Bot gọi bạn là gì trong tin nhắn — mặc định `"bro"`; đổi thành `"bạn"`, `"chị"`, `"anh"` hay tên bạn | `"chị"` |
 
 Các dòng khác **để nguyên**. Muốn đổi số ngày phép/năm: thêm (hoặc sửa) 2 dòng
 `"annual_leave_per_year": 17,` và `"sick_leave_per_year": 14,` (xem mục 8).
+
+> **Cập nhật 13-Oct-2026 — bot gọi bạn là gì:** mặc định bot gọi bạn là **"bro"** (các câu mẫu trong tài liệu này cũng ghi "bro"). Muốn đổi: sửa dòng `"bot_goi_ban_la": "bro",` trong `settings.json` thành `"chị"`, `"anh"`, `"bạn"`, hay tên bạn (vd `"Lan"`), lưu lại rồi **tắt bật lại bot** (`restart_bot.bat` · 🍎 Mac: `restart_bot.command`). Bạn cài **trước 13-Oct** thì file chưa có dòng này → thêm 1 dòng `"bot_goi_ban_la": "chị",` ngay dưới dòng `"signature_name"`. Để trống, gõ sai, hay thiếu dòng → bot vẫn gọi "bro" như cũ, **không lỗi**. Chỉ đổi lời bot nói trên Telegram — email gửi sếp không đổi gì.
 
 ⚠️ File này phải **đúng định dạng** (dấu nháy, dấu phẩy). Sai 1 dấu là bot không chạy — bước 10 sẽ báo cho bạn biết.
 
