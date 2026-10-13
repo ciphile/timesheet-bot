@@ -45,7 +45,7 @@ from telegram.ext import (
     filters,
 )
 
-from config_loader import ConfigError, load_config
+from config_loader import ConfigError, load_config, xung_ho as _xung_ho
 from log_setup import get_logger
 from audit_log import audit
 import daily_store
@@ -187,13 +187,19 @@ def _sent_at_local(update: Update) -> datetime:
     return sent.astimezone().replace(tzinfo=None) if sent else datetime.now()
 
 
+async def _say(update, text, *args, **kwargs):
+    """(13-Oct) Gửi 1 tin trả lời. Đổi chữ "bro" theo settings.json
+    ("bot_goi_ban_la" — xem config_loader.xung_ho); mặc định giữ nguyên văn."""
+    return await update.effective_message.reply_text(_xung_ho(text), *args, **kwargs)
+
+
 async def _reply_long(update: Update, text: str):
     """Gửi tin nhắn có thể DÀI, tự cắt theo giới hạn Telegram (~4096
     ký tự/tin). Danh sách câu hỏi khi quét bù nhiều tuần, hoặc khi
     nhiều ngày cùng lỗi, có thể vượt giới hạn -> Telegram từ chối cả
     tin, người dùng KHÔNG NHẬN ĐƯỢC GÌ và tưởng bot chết."""
     for part in orchestrator.chunk_text(text):
-        await update.effective_message.reply_text(part)
+        await _say(update, part)
 
 
 def _normalize(text: str) -> str:
@@ -208,7 +214,7 @@ def _normalize(text: str) -> str:
 async def _reply_result(update: Update, result: dict):
     status = result.get("status")
     if status == "already_sent":
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Kỳ thứ 6 {result['send_day']} gửi rồi nha bro, khỏi lo.")
         return
     if status == "need_info":
@@ -221,14 +227,14 @@ async def _reply_result(update: Update, result: dict):
         return
     if status == "ready":
         for part in orchestrator.chunk_text(result["preview"]):
-            await update.effective_message.reply_text(part)
+            await _say(update, part)
         for path in result.get("files") or []:
             with open(path, "rb") as f:
                 await update.effective_message.reply_document(
                     document=f, filename=path.name)
         hold_note = ("\n(Đang KHOAN GỞI theo lệnh bro — ok thì mình "
                      "mới gửi.)" if result.get("hold") else "")
-        await update.effective_message.reply_text(
+        await _say(update, 
             'Ưng thì nhắn "ok" là mình gửi sếp; muốn sửa thì nói tự '
             'nhiên (vd: "thứ 5 đổi thành nghỉ phép").' + hold_note)
         return
@@ -247,7 +253,7 @@ async def _reply_result(update: Update, result: dict):
             + (f"\n\n{result['leave_summary']}" if result.get("leave_summary") else ""))
         await _after_weekly_sent(update, result)          # T6–CN: chúc + tự tắt
         return
-    await update.effective_message.reply_text(f"Kết quả lạ: {result}")
+    await _say(update, f"Kết quả lạ: {result}")
 
 
 # ---------------------------------------------------------------------
@@ -506,7 +512,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not got_lock:
             log.warning("Không lấy được khóa state — báo bận, bỏ qua tin này.")
             audit("BUSY_SKIPPED", text[:80])
-            await update.effective_message.reply_text(
+            await _say(update, 
                 "Mình đang bận xử lý timesheet (job thứ 6 đang chạy) nên "
                 "chưa nhận tin này được. Bro nhắn lại sau khoảng 1 phút "
                 "giúp mình nha — tin nhắn chưa được ghi đâu.")
@@ -544,7 +550,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if is_cancel:
                         _pn = (len(state.get("pending_notes") or [])
                                if awaiting_val == "past_edit_confirm" else 0)
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             "Đã hủy. Trở lại bình thường — nhắn gì cũng được."
                             + (f"\n📥 Còn {_pn} tin chờ (AI lỗi lúc nhắn) → /retrynotes"
                                if _pn else ""))
@@ -556,7 +562,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # A) Đang chờ người dùng NHẬP YÊU CẦU (AI mode) — bước 1
             if awaiting_val == "compose_ai_request":
-                await update.effective_message.reply_text(
+                await _say(update, 
                     "Đang soạn email…")
                 try:
                     email = await asyncio.to_thread(
@@ -564,7 +570,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except ai_client.AIError as e:
                     state["conversation"] = None
                     state_mod.save_state(state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         f"Soạn email lỗi ({e}). Thử lại /composemail nhé.")
                     return
                 state["conversation"] = {
@@ -580,7 +586,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     email = compose_email.parse_manual_input(text)
                 except ValueError as e:
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         f"{e}\n\nNhập lại giúp mình, hoặc /composemanual để bắt đầu lại.")
                     return
                 state["conversation"] = {
@@ -593,7 +599,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # D) SỬA TIMESHEET ĐÃ GỬI — bước 1: nhập nội dung sửa
             if awaiting_val == "past_edit_request":
-                await update.effective_message.reply_text(
+                await _say(update, 
                     "Đang bóc tách nội dung sửa…")
                 try:
                     acts, not_act = await asyncio.to_thread(
@@ -603,7 +609,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                                 source="edit")
                     return
                 if not_act or not acts:
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Chưa rõ bro muốn sửa gì. Nhắn dạng 'ngày DD/MM: task', "
                         "hoặc nhắn 'hủy' để thoát.")
                     return
@@ -629,7 +635,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             "Không ghi được — còn lỗi:\n"
                             + "\n".join(f"• {a.error}" for a in acts if a.error))
                         return
-                    await update.effective_message.reply_text("Đang ghi bản sửa…")
+                    await _say(update, "Đang ghi bản sửa…")
                     try:
                         res = await asyncio.to_thread(
                             note_action.persist_actions, acts, config,
@@ -638,7 +644,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         log.exception("note_action persist lỗi")
                         state["conversation"] = None
                         state_mod.save_state(state)
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             f"Ghi bản sửa lỗi ({type(e).__name__}: {e}).")
                         return
                     excel_months = res.get("excel_months", [])
@@ -713,14 +719,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif normalized in CANCEL_COMPOSE_PHRASES:
                     state["conversation"] = None
                     state_mod.save_state(state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Đã hủy sửa timesheet. Không đụng gì vào dữ liệu.")
                     return
                 else:
                     # Yêu cầu SỬA LẠI → DUYỆT ACTION TỪ ĐẦU với câu đính chính.
                     # Kèm CONTEXT ngày của bản trước để AI hiểu "các ngày này",
                     # "sửa lại action" khi câu đính chính thiếu ngày cụ thể.
-                    await update.effective_message.reply_text("Đang duyệt lại…")
+                    await _say(update, "Đang duyệt lại…")
                     prev_acts = _deserialize_actions(conv.get("note_actions", []))
                     prev_days = sorted({a.day.isoformat() for a in prev_acts
                                         if a.day})
@@ -735,7 +741,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         r_acts, why = note_action.actions_from_rule_parser(
                             text, date.today())
                         if not r_acts:
-                            await update.effective_message.reply_text(
+                            await _say(update, 
                                 "🔌 AI đang lỗi mạng, và luật dự phòng không hiểu câu "
                                 f"sửa lại này ({why}). Bản xem trước lúc nãy VẪN GIỮ: "
                                 "nhắn 'ok' để ghi bản đó, nói lại rõ 'ngày DD/MM: task', "
@@ -743,7 +749,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             return
                         acts, not_act = r_acts, False
                     if not_act or not acts:
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             "Chưa rõ yêu cầu sửa. Nói rõ hơn (vd 'thay thế các "
                             "ngày này thành nghỉ phép'), hoặc 'ok'/'hủy'.")
                         return
@@ -773,7 +779,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 email = conv.get("email", {})
                 if normalized in CONFIRM_PHRASES:
                     # Gửi email
-                    await update.effective_message.reply_text("Đang gửi email…")
+                    await _say(update, "Đang gửi email…")
                     try:
                         result = await asyncio.to_thread(
                             compose_email.send_composed_email, email, config)
@@ -783,7 +789,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         return
                     except Exception as e:  # noqa: BLE001
                         log.exception("compose_email gửi lỗi")
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             f"❌ Gửi email lỗi ({type(e).__name__}: {e}) — sếp "
                             "CHƯA nhận. Email nháp vẫn giữ: nhắn 'ok' thử lại, "
                             "/personalmailon để đổi sang Gmail, 'hủy' để bỏ.")
@@ -798,17 +804,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif normalized in {"hủy", "huỷ", "cancel", "thôi", "bỏ", "khỏi gửi"}:
                     state["conversation"] = None
                     state_mod.save_state(state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Đã hủy soạn email.")
                     return
                 else:
                     # Coi là YÊU CẦU SỬA → gọi AI modify (nếu email do AI soạn)
-                    await update.effective_message.reply_text("Đang sửa email…")
+                    await _say(update, "Đang sửa email…")
                     try:
                         new_email = await asyncio.to_thread(
                             compose_email.modify_with_ai, email, text, config)
                     except ai_client.AIError as e:
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             f"Sửa email lỗi ({e}). Nói lại giúp mình, "
                             "hoặc 'ok' để gửi bản hiện tại, 'hủy' để bỏ.")
                         return
@@ -833,7 +839,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if conv.get("resume"):
                         state["conversation"] = conv["resume"]
                         state_mod.save_state(state)
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             "Lời hỏi đổi sang Gmail đã hết hạn (5 phút) — KHÔNG đổi. "
                             "Email đang chờ vẫn còn: 'ok' để gửi bằng mail hiện tại, "
                             "hoặc /personalmailon lại.")
@@ -846,7 +852,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     state["mail_mode"] = "personal"
                     state_mod.save_state(state)
                     audit("MAIL_MODE", "personal (bật /personalmailon)")
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "✅ Đã BẬT: từ giờ gửi bằng GMAIL CÁ NHÂN "
                         f"({config.gmail_address}), Bcc mail công ty.\n"
                         "Áp dụng cho cả email timesheet lẫn email nghỉ phép.\n"
@@ -857,7 +863,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     state["conversation"] = conv.get("resume")
                     state_mod.save_state(state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Không đổi — vẫn gửi bằng MAIL CÔNG TY."
                         + (" Email đang chờ vẫn còn: 'ok' để gửi." if conv.get("resume") else ""))
                     return
@@ -879,7 +885,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                       + leave_balance.format_balance(r))
                     return
                 state_mod.save_state(state)
-                await update.effective_message.reply_text(
+                await _say(update, 
                     "Đã hủy, số ngày phép KHÔNG đổi.")
                 return
 
@@ -904,11 +910,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 state["conversation"] = None
                 state_mod.save_state(state)
                 if normalized not in CANCEL_COMPOSE_PHRASES:
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Chưa gởi lại. Muốn sửa ngày đó: /edittimesheet rồi nhắn "
                         "'gởi lại'. Muốn gửi luôn: 'gởi lại' → 'vẫn gởi'.")
                 else:
-                    await update.effective_message.reply_text("Đã hủy gởi lại.")
+                    await _say(update, "Đã hủy gởi lại.")
                 return
 
             # 0-mm) /manualmail — bro đang GÕ nội dung email
@@ -917,7 +923,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if normalized in CANCEL_COMPOSE_PHRASES:
                     _MANUAL_BODY.clear()
                     back.pop("manual", None)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Đã bỏ nội dung tự gõ — dùng lại email TỰ ĐỘNG:")
                     await _reshow_pending(update, back)
                     return
@@ -938,9 +944,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if manual is False:
                         state["conversation"] = conv
                         state_mod.save_state(state)
-                        await update.effective_message.reply_text(_MANUAL_LOST_MSG)
+                        await _say(update, _MANUAL_LOST_MSG)
                         return
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         f"Ok, đang gởi lại cho sếp (tháng {', '.join(months_to_send)})…"
                         + (" (nội dung email bro TỰ GÕ)" if manual else ""))
                     _force = bool(conv.get("force"))
@@ -963,7 +969,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         state_mod.save_state(st2)
                     await _reply_result(update, result)
                     return
-                await update.effective_message.reply_text(
+                await _say(update, 
                     "✅ Đã hủy gởi lại. KHÔNG có mail nào được gửi. Sửa tiếp "
                     "bằng /edittimesheet rồi nhắn 'gởi lại' khi xong.")
                 return
@@ -973,11 +979,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if normalized in CONFIRM_PHRASES:
                     manual = _manual_body_or_warn(conv)
                     if manual is False:
-                        await update.effective_message.reply_text(_MANUAL_LOST_MSG)
+                        await _say(update, _MANUAL_LOST_MSG)
                         return
                     state["conversation"] = None
                     state_mod.save_state(state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Ok, đang ghi file + gửi mail cho sếp…"
                         + (" (nội dung email bro TỰ GÕ)" if manual else ""))
                     try:
@@ -999,7 +1005,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     state["conversation"] = None
                     state_mod.save_state(state)
                     if not text.strip().startswith("/"):
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             "✅ Đã hủy gửi email timesheet. KHÔNG có mail nào "
                             "được gửi. Bản nháp vẫn còn — sửa rồi /weeklyrun "
                             "lại, hoặc /checkdraft xem lại.")
@@ -1008,7 +1014,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     conv = {}
                     awaiting_val = None
                 else:
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Nhắn 'ok' để GỬI cho sếp, hoặc 'hủy' / /resetmailts "
                         "để hủy (sửa lại timesheet).")
                     return
@@ -1024,7 +1030,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                               f"xóa {result['line_count']} dòng, "
                               f"backup={result.get('backup')}")
                         n_parsed = len(daily_store.load_all())
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             f"✅ Đã xóa {result['line_count']} dòng ghi chú thô "
                             f"(notes.jsonl).\n"
                             f"📁 Backup: {result.get('backup') or '(không có)'}\n\n"
@@ -1035,12 +1041,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         log.exception("/clearnotes lỗi")
                         state["conversation"] = None
                         state_mod.save_state(state)
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             f"Lỗi xóa notes: {type(e).__name__}: {e}")
                 else:
                     state["conversation"] = None
                     state_mod.save_state(state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Đã hủy. notes.jsonl vẫn nguyên.")
                 return
 
@@ -1103,7 +1109,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         audit("NOTES_RESET_ALL",
                               f"xóa {n_before} ghi chú + parsed_days "
                               f"(backup: {notes_bak}, {parsed_bak})")
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             f"✅ Đã xóa toàn bộ {n_before} ghi chú "
                             f"và cache parse.\n"
                             f"📁 Backup: {notes_bak or '(không có)'}, "
@@ -1114,13 +1120,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         log.exception("/resetnotes: lỗi khi xóa")
                         state["conversation"] = None
                         state_mod.save_state(state)
-                        await update.effective_message.reply_text(
+                        await _say(update, 
                             f"Xóa bị lỗi ({type(e).__name__}: {e}). "
                             f"Xem log để biết thêm.")
                 else:
                     state["conversation"] = None
                     state_mod.save_state(state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Đã hủy. Ghi chú vẫn nguyên vẹn.")
                 return
 
@@ -1128,23 +1134,23 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if normalized in CONFIRM_PHRASES:
                 if state.get("past_edit"):
                     audit("CMD_CONFIRM_PAST_EDIT", text)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Ok, đang sửa file đã gửi…")
                     result = await asyncio.to_thread(
                         orchestrator.apply_past_edit, config, state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Đã sửa xong: " + ", ".join(result["files"])
                         + "\n\nBản sửa sẽ đi kèm chuyến gửi thứ 6 tới. "
                         "Muốn gửi lại cho sếp ngay thì nhắn \"gởi lại\".")
                     return
                 if not draft_pending:
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Chưa có bản nháp nào chờ duyệt bro. Muốn chốt sớm "
                         "thì nhắn: gởi timesheet tới hôm nay.")
                     return
                 audit("CMD_CONFIRM", text)
                 # BƯỚC REVIEW EMAIL: hiện nội dung email + D/E/F trước khi gửi
-                await update.effective_message.reply_text(
+                await _say(update, 
                     "Đang soạn email timesheet để bro xem trước…")
                 prev = await asyncio.to_thread(
                     orchestrator.prepare_send_preview, config, state)
@@ -1158,7 +1164,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "\n".join(f"• {q}" for q in prev.get("questions", [])))
                     return
                 elif prev.get("status") == "already_sent":
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Tuần này đã gửi rồi bro.")
                     return
                 else:
@@ -1173,7 +1179,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 state["hold"] = False
                 state_mod.save_state(state)
                 audit("CMD_UNHOLD", "")
-                await update.effective_message.reply_text(
+                await _say(update, 
                     "Đã bỏ khoan. Có nháp thì bro cứ ok là mình gửi.")
                 return
             if ("khoan" in normalized
@@ -1181,7 +1187,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 state["hold"] = True
                 state_mod.save_state(state)
                 audit("CMD_HOLD", "")
-                await update.effective_message.reply_text(
+                await _say(update, 
                     "Rồi, KHOAN GỞI. Mình giữ lại tới khi bro ok, kể cả "
                     "qua thứ 7 CN luôn.")
                 return
@@ -1227,7 +1233,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     msg = "Status đã sạch rồi, không có gì để reset bro."
 
-                await update.effective_message.reply_text(msg)
+                await _say(update, msg)
                 return
 
             # 4) RESET NOTES — bước 1: hỏi xác nhận
@@ -1238,7 +1244,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 n_total = sum(
                     1 for l in open(notes_store.NOTES_FILE, encoding="utf-8")
                     if l.strip()) if notes_store.NOTES_FILE.exists() else 0
-                await update.effective_message.reply_text(
+                await _say(update, 
                     f"⚠️ Bro sắp XÓA TOÀN BỘ {n_total} ghi chú "
                     f"(tất cả các kỳ) và toàn bộ cache parse.\n\n"
                     f"Dữ liệu Excel timesheet đã gửi KHÔNG bị ảnh hưởng.\n\n"
@@ -1251,7 +1257,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Bước 1: hỏi xác nhận với danh sách lỗi hiện tại
                 draft = state.get("draft")
                 if not draft:
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Chưa có bản nháp nào để gởi bro. "
                         "Nhắn 'gởi timesheet tới hôm nay' để soạn trước.")
                     return
@@ -1259,7 +1265,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pending_issues = state.get("last_questions") or []
                 if not pending_issues:
                     # Không có lỗi → gửi bình thường
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Không có lỗi nào cần bypass. Nhắn 'ok' để gởi bình thường.")
                     return
                 issues_text = "\n".join(f"• {q}" for q in pending_issues)
@@ -1279,7 +1285,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     audit("FORCE_SEND_CONFIRMED", "bypass validation")
                     state["conversation"] = None
                     state_mod.save_state(state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Ok, đang bỏ qua validation và gởi mail…")
                     result = await asyncio.to_thread(
                         orchestrator.finalize_and_send, config, state,
@@ -1288,7 +1294,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     state["conversation"] = None
                     state_mod.save_state(state)
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Đã hủy. Bản nháp vẫn còn đó, nhắn lại khi cần.")
                 return
 
@@ -1343,7 +1349,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Phải bắt TRƯỚC handler ghi chú để tránh lưu vào notes
             if normalized in EARLY_SEND_PHRASES:
                 audit("CMD_EARLY_SEND", text)
-                await update.effective_message.reply_text(
+                await _say(update, 
                     "Đang soạn bản nháp timesheet…")
                 # Thứ 2–6: chốt TỚI HÔM NAY. Thứ 7/CN: chốt theo thứ 6 vừa qua.
                 # (Sửa 30-Sep: trước không truyền ngày → thứ 2–5 tự lùi về thứ 6
@@ -1356,11 +1362,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         state_mod.load_state(), False, _early_day)
                 except Exception as e:
                     log.exception("early_send lỗi")
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         f"Lỗi soạn bản nháp: {type(e).__name__}: {e}")
                     return
                 if result.get("status") == "already_sent":
-                    await update.effective_message.reply_text(
+                    await _say(update, 
                         "Các ngày tới hôm nay đã gửi sếp rồi bro. Sửa ngày đã "
                         "gửi: /edittimesheet → rồi /resend để gởi lại bản mới.")
                 elif result.get("status") == "need_info":
@@ -1398,7 +1404,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except KNOWN_ERRORS as e:
             log.warning("Lỗi nghiệp vụ đã biết: %s: %s", type(e).__name__, e)
             audit("HANDLER_ERROR", f"{type(e).__name__}: {e}")
-            await update.effective_message.reply_text(str(e))
+            await _say(update, str(e))
         except _TG_NET_ERRORS as e:
             # Mất mạng lúc bot đang TRẢ LỜI → không cố gửi thêm (cũng sẽ hỏng)
             log.warning("Mất kết nối Telegram khi trả lời (%s) — tin trả lời có thể "
@@ -1407,7 +1413,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:  # noqa: BLE001
             log.exception("Lỗi xử lý lệnh (CHƯA TỪNG GẶP).")
             audit("HANDLER_ERROR", f"{type(e).__name__}: {e}")
-            await update.effective_message.reply_text(
+            await _say(update, 
                 f"Hỏng rồi bro, lệnh này bị lỗi lạ ({type(e).__name__}). "
                 "Chi tiết trong data\\logs\\timesheet.log — thử lại hoặc "
                 "chụp log cho Claude nhé.")
@@ -1437,12 +1443,12 @@ async def _handle_note_action(update, state: dict, text: str, sent_day=None,
         # Không phải action timesheet (ok/cảm ơn...) → không làm gì thêm
         # (các phrase điều khiển đã được handler phía trên bắt rồi)
         if from_retry:      # (11-Oct) /retrynotes: nói rõ là KHÔNG ghi gì
-            await update.effective_message.reply_text(
+            await _say(update, 
                 "AI đọc lại: câu này KHÔNG có việc timesheet nào → đã BỎ khỏi hàng "
                 "chờ, KHÔNG ghi gì. Nếu đó là việc của 1 ngày, nhắn lại rõ: "
                 "'ngày DD/MM: task + mã ticket'.")
             return
-        await update.effective_message.reply_text("Đã ghi chú nha bro.")
+        await _say(update, "Đã ghi chú nha bro.")
         return
 
     pd = daily_store.load_all()
@@ -1480,7 +1486,7 @@ async def _handle_note_action(update, state: dict, text: str, sent_day=None,
             state_mod.load_state(), True)
     except Exception as e:  # noqa: BLE001
         log.exception("note_action persist lỗi")
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Ghi lỗi ({type(e).__name__}: {e}).")
         return
 
@@ -1567,13 +1573,13 @@ async def _fallback_rule_parser(update, state: dict, text: str, ai_err,
             + note_action.format_preview(acts))
         return
     if source == "edit":
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"🔌 AI đang lỗi mạng, và rule không bóc được câu này ({reason}). "
             "CHƯA ghi gì. Thử lại sau vài phút, ghi rõ ngày dd/mm + task, "
             "hoặc nhắn 'hủy' để thoát.")
         return
     n = _queue_pending_note(state, text, reason, sent_day)
-    await update.effective_message.reply_text(
+    await _say(update, 
         f"🔌 AI đang lỗi mạng, và rule không bóc được câu này ({reason}).\n"
         "→ CHƯA ghi vào timesheet. Mình đã GIỮ LẠI tin này "
         f"(đang có {n} tin chờ).\n"
@@ -1728,12 +1734,12 @@ async def cmd_summary(update: Update,
         log.warning("cmd_summary lỗi đọc (%s)", e)
         data = {}
     if not data:
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Chưa có dữ liệu parse nào bro. Nhắn ghi chú trước nhé.")
         return
     audit("CMD_SUMMARY", f"{len(data)} ngày")
     for part in _format_summary(data, "TỔNG HỢP CÔNG VIỆC", "kỳ này"):
-        await update.effective_message.reply_text(part)
+        await _say(update, part)
 
 
 async def cmd_summary_week(update: Update,
@@ -1759,17 +1765,17 @@ async def cmd_summary_week(update: Update,
                      if week_start.isoformat() <= k <= week_end.isoformat()}
     except Exception as e:
         log.warning("cmd_summary_week lỗi (%s)", e)
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Lỗi đọc dữ liệu ({type(e).__name__}). Xem log nha bro.")
         return
     if not data_week:
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Chưa có dữ liệu tuần này bro.")
         return
     label = (f"{week_start.strftime('%d/%m')} – {week_end.strftime('%d/%m/%Y')}")
     audit("CMD_SUMMARY_WEEK", label)
     for part in _format_summary(data_week, f"TUẦN {label}", label):
-        await update.effective_message.reply_text(part)
+        await _say(update, part)
 
 
 
@@ -1786,10 +1792,10 @@ async def cmd_validate_notes(update: Update,
     try:
         data = daily_store.load_all()
     except Exception as e:
-        await update.effective_message.reply_text(f"Lỗi đọc parsed_days: {e}")
+        await _say(update, f"Lỗi đọc parsed_days: {e}")
         return
     if not data:
-        await update.effective_message.reply_text("parsed_days.json trống bro.")
+        await _say(update, "parsed_days.json trống bro.")
         return
 
     all_entries = []
@@ -1801,7 +1807,7 @@ async def cmd_validate_notes(update: Update,
 
     errors = validator.validate_task_rules(all_entries, is_friday=False)
     if not errors:
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"✅ Tất cả {len(data)} ngày, {len(all_entries)} task — "
             f"không có lỗi D/E/F nào bro!")
     else:
@@ -1818,18 +1824,18 @@ async def cmd_create_draft(update: Update,
     Không cần AI. Tương đương chạy weekly_run nhưng chỉ dừng ở bước Excel."""
     if not is_allowed(update): return
     audit("CMD_CREATEDRAFT", "")
-    await update.effective_message.reply_text("Đang tạo bản nháp Excel…")
+    await _say(update, "Đang tạo bản nháp Excel…")
     try:
         result = await asyncio.to_thread(
             orchestrator.prepare_draft, config, state_mod.load_state())
     except Exception as e:
         log.exception("cmd_create_draft lỗi")
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Lỗi tạo bản nháp: {type(e).__name__}: {e}")
         return
     status = result.get("status")
     if status == "already_sent":
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Tuần {result.get('send_day','này')} ĐÃ GỬI cho sếp rồi bro — "
             "không cần tạo draft nữa.\n\n"
             "• Muốn gửi LẠI file tuần này (vd sau khi sửa số liệu) → "
@@ -1849,7 +1855,7 @@ async def cmd_create_draft(update: Update,
             f"✅ Bản nháp Excel tạo xong!\n\n{preview[:800]}"
             + "\n\nNhắn /sendmail để gửi, hoặc /checkdraft để xem lại.")
     else:
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Trạng thái không rõ: {status}")
 
 
@@ -1858,18 +1864,18 @@ async def cmd_force_draft(update: Update,
     """/forcedraft — Tạo bản nháp Excel dù còn lỗi validation."""
     if not is_allowed(update): return
     audit("CMD_FORCEDRAFT", "bypass validation")
-    await update.effective_message.reply_text("Đang tạo bản nháp (bỏ qua validation)…")
+    await _say(update, "Đang tạo bản nháp (bỏ qua validation)…")
     try:
         result = await asyncio.to_thread(
             orchestrator.prepare_draft, config, state_mod.load_state(),
             force=True)
     except Exception as e:
         log.exception("cmd_force_draft lỗi")
-        await update.effective_message.reply_text(f"Lỗi: {type(e).__name__}: {e}")
+        await _say(update, f"Lỗi: {type(e).__name__}: {e}")
         return
     status = result.get("status")
     if status == "already_sent":
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Tuần {result.get('send_day','này')} ĐÃ GỬI cho sếp rồi bro.\n\n"
             "• Gửi LẠI file tuần này → 'gởi lại'.\n"
             "• Sửa 1 ngày đã gửi → nhắn ngày + việc mới, bot soạn bản sửa.")
@@ -1895,7 +1901,7 @@ async def cmd_check_draft(update: Update,
     state = state_mod.load_state()
     draft = state.get("draft")
     if not draft:
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Chưa có bản nháp nào. Nhắn /createdraft để tạo.")
         return
     preview = draft.get("preview", "(không có preview)")
@@ -1915,17 +1921,17 @@ async def cmd_send_mail(update: Update,
     if not is_allowed(update): return
     state = state_mod.load_state()
     if not state.get("draft"):
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Chưa có bản nháp. Nhắn /createdraft trước.")
         return
     audit("CMD_SENDMAIL", "")
-    await update.effective_message.reply_text("Đang gửi mail…")
+    await _say(update, "Đang gửi mail…")
     try:
         result = await asyncio.to_thread(
             orchestrator.finalize_and_send, config, state)
     except Exception as e:
         log.exception("cmd_send_mail lỗi")
-        await update.effective_message.reply_text(f"Lỗi gửi: {type(e).__name__}: {e}")
+        await _say(update, f"Lỗi gửi: {type(e).__name__}: {e}")
         return
     await _reply_result(update, result)
 
@@ -1952,19 +1958,19 @@ async def cmd_force_send_mail(update: Update,
                           "\n\n" + prev["preview"])
         return
     if not state.get("draft"):
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Chưa có bản nháp. Nhắn /createdraft hoặc /forcedraft trước. "
             "(Muốn GỞI LẠI bỏ qua cảnh báo: nhắn 'gởi lại' → khi bị chặn gõ "
             "/forcesendmail hoặc 'vẫn gởi'.)")
         return
     audit("CMD_FORCE_SENDMAIL", "bypass validation")
-    await update.effective_message.reply_text("Đang gửi mail (bỏ qua validation)…")
+    await _say(update, "Đang gửi mail (bỏ qua validation)…")
     try:
         result = await asyncio.to_thread(
             orchestrator.finalize_and_send, config, state, force=True)
     except Exception as e:
         log.exception("cmd_force_send_mail lỗi")
-        await update.effective_message.reply_text(f"Lỗi: {type(e).__name__}: {e}")
+        await _say(update, f"Lỗi: {type(e).__name__}: {e}")
         return
     await _reply_result(update, result)
 
@@ -2059,7 +2065,7 @@ async def cmd_edit_timesheet(update: Update,
     state = state_mod.load_state()
     state["conversation"] = {"awaiting": "past_edit_request"}
     state_mod.save_state(state)
-    await update.effective_message.reply_text(
+    await _say(update, 
         "🔧 Sửa timesheet (ngày đã gửi HOẶC ngày trong kỳ chưa gửi).\n\n"
         "Bro muốn sửa ngày nào, task gì? Nhắn theo dạng:\n"
         "ngày <DD/MM>: <nội dung task>\n\n"
@@ -2100,7 +2106,7 @@ async def cmd_retry_notes(update: Update,
     q = list(state.get("pending_notes") or [])
     arg = " ".join(context.args or []).strip().lower()
     if not q:
-        await update.effective_message.reply_text("✅ Không có tin nào đang chờ.")
+        await _say(update, "✅ Không có tin nào đang chờ.")
         return
     if arg in ("xem", "list"):
         await _reply_long(update, f"📥 {len(q)} TIN CHỜ XỬ LÝ (AI lỗi lúc nhắn):\n"
@@ -2113,12 +2119,12 @@ async def cmd_retry_notes(update: Update,
         state["pending_notes"] = q
         state_mod.save_state(state)
         audit("NOTE_PENDING_DROP", dropped["text"][:60])
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Đã BỎ tin: “{dropped['text']}” (không ghi gì). Còn {len(q)} tin chờ.")
         return
     if (state.get("conversation") or {}).get("awaiting") == "past_edit_confirm":
         # (11-Oct) lấy tin kế lúc này sẽ ĐÈ MẤT bản xem trước đang chờ 'ok'
-        await update.effective_message.reply_text(
+        await _say(update, 
             "⏸ Bro đang có 1 bản xem trước GHI/SỬA timesheet chờ trả lời (tin phía "
             "trên). Nhắn 'ok' để ghi hoặc 'hủy' để bỏ câu đó trước, rồi /retrynotes "
             f"tiếp nhé — mình CHƯA đụng tin chờ nào (còn {len(q)} tin).")
@@ -2127,7 +2133,7 @@ async def cmd_retry_notes(update: Update,
     state["pending_notes"] = q
     state_mod.save_state(state)
     ai_client.clear_rule_parser_mode()   # bro chủ động thử lại → cho AI 1 cơ hội
-    await update.effective_message.reply_text(
+    await _say(update, 
         f"Đang xử lý lại (còn {len(q)} tin khác chờ):\n“{item['text']}”")
     _sd = item.get("sent_day")
     try:
@@ -2145,7 +2151,7 @@ async def cmd_retry_notes(update: Update,
             _q.insert(0, item)
         _st["pending_notes"] = _q
         state_mod.save_state(_st)
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"⚠️ Lỗi lạ khi xử lý lại ({type(e).__name__}) — tin VẪN GIỮ trong "
             "hàng chờ. Thử lại /retrynotes sau, hoặc '/retrynotes bỏ' rồi tự gõ lại.")
         return
@@ -2153,11 +2159,11 @@ async def cmd_retry_notes(update: Update,
     left = len(_st.get("pending_notes") or [])
     if left:
         if (_st.get("conversation") or {}).get("awaiting") == "past_edit_confirm":
-            await update.effective_message.reply_text(
+            await _say(update, 
                 f"📥 Còn {left} tin chờ — trả lời 'ok'/'hủy' bản xem trước ở trên "
                 "TRƯỚC, rồi nhắn /retrynotes để xử lý tin kế.")
         else:
-            await update.effective_message.reply_text(
+            await _say(update, 
                 f"📥 Còn {left} tin chờ — nhắn /retrynotes để xử lý tin kế.")
 
 
@@ -2221,7 +2227,7 @@ async def cmd_update_leave(update: Update,
     cur = ", ".join(f"{k.upper() if k != 'annual' else 'AL'} "
                     f"{leave_balance._num(r[k]['balance_confirmed'])}"
                     for k in ("annual", "sick", "special"))
-    await update.effective_message.reply_text(
+    await _say(update, 
         f"Số dư hiện tại: {cur.replace('SPECIAL', 'SL')}\n\n"
         "Nhắn số ngày CÒN LẠI muốn đặt (chỉ ghi loại cần sửa):\n"
         "  AL 10          → phép năm còn 10\n"
@@ -2291,13 +2297,13 @@ async def cmd_manual_mail(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if conv.get("awaiting") == "manual_mail_body":
         conv = conv.get("back") or {}
     if conv.get("awaiting") not in ("ts_mail_confirm", "resend_confirm"):
-        await update.effective_message.reply_text(
+        await _say(update, 
             "/manualmail chỉ dùng khi bot đang hiện EMAIL XEM TRƯỚC timesheet "
             "(thứ 6: 'ok' lần 1) hoặc GỞI LẠI. Làm tới bước đó rồi gõ /manualmail.")
         return
     state["conversation"] = {"awaiting": "manual_mail_body", "back": conv}
     state_mod.save_state(state)
-    await update.effective_message.reply_text(
+    await _say(update, 
         f"✍️ Gõ TOÀN BỘ nội dung email (từ 'Hi {config.get('boss_name')}' tới chữ ký) trong 1 tin nhắn.\n"
         "• Bot gửi NGUYÊN VĂN 100% — không thêm, không sửa chữ nào.\n"
         "• Tiêu đề + file Excel đính kèm GIỮ NGUYÊN.\n"
@@ -2318,10 +2324,10 @@ async def _start_resend(update, state: dict) -> None:
     elif last is not None:
         months_to_send = [last.strftime("%Y-%m")]
     else:
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Chưa từng gửi timesheet nên chưa có gì để gửi lại bro.")
         return
-    await update.effective_message.reply_text(
+    await _say(update, 
         f"Đang soạn email gởi lại (tháng {', '.join(months_to_send)}) "
         "để bro xem trước…")
     prev = await asyncio.to_thread(
@@ -2353,7 +2359,7 @@ async def cmd_resend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     state = state_mod.load_state()
     aw = (state.get("conversation") or {}).get("awaiting")
     if aw not in (None, "resend_need_info", "resend_confirm"):
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Đang dở 1 bước khác (bot đang chờ bro trả lời). Nhắn 'ok' để hoàn tất "
             "hoặc 'hủy' để bỏ bước đó, rồi gõ lại /resend.")
         return
@@ -2366,7 +2372,7 @@ async def cmd_personal_mail_on(update: Update,
     """/personalmailon — xin xác nhận rồi chuyển sang gửi bằng Gmail cá nhân."""
     if not is_allowed(update): return
     if not getattr(config, "gmail_ok", True):          # Gmail là TÙY CHỌN (02-Oct)
-        await update.effective_message.reply_text(
+        await _say(update, 
             "⚠️ Chưa thiết lập Gmail cá nhân (" + config.gmail_problem + ").\n"
             "→ Bot VẪN gửi bằng MAIL CÔNG TY như bình thường.\n"
             "Muốn gửi bằng Gmail: điền GMAIL_ADDRESS + GMAIL_APP_PASSWORD trong "
@@ -2374,7 +2380,7 @@ async def cmd_personal_mail_on(update: Update,
         return
     state = state_mod.load_state()
     if state.get("mail_mode") == "personal":
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Đang gửi bằng GMAIL CÁ NHÂN sẵn rồi. /personalmailoff để về "
             "mail công ty.")
         return
@@ -2386,7 +2392,7 @@ async def cmd_personal_mail_on(update: Update,
                              "at": datetime.now().isoformat(),
                              "resume": prev if prev.get("awaiting") in _RESUMABLE else None}
     state_mod.save_state(state)
-    await update.effective_message.reply_text(
+    await _say(update, 
         "⚠️ Chuyển sang gửi bằng GMAIL CÁ NHÂN?\n"
         f"  From: {config.gmail_address}\n"
         f"  Bcc : {mailer.BCC_WHEN_PERSONAL or '(không)'}\n"
@@ -2406,12 +2412,12 @@ async def cmd_personal_mail_off(update: Update,
         state["conversation"] = conv or None
     state_mod.save_state(state)
     if conv.get("awaiting") in _RESUMABLE:
-        await update.effective_message.reply_text(
+        await _say(update, 
             "✅ Đã về MAIL CÔNG TY. Hiện lại email đang chờ:")
         await _reshow_pending(update, conv)
         return
     audit("MAIL_MODE", "company (/personalmailoff)")
-    await update.effective_message.reply_text(
+    await _say(update, 
         f"✅ Gửi bằng MAIL CÔNG TY ({mailer.BCC_WHEN_PERSONAL}), "
         f"Bcc {mailer.BCC_WHEN_COMPANY or 'không'}.\n"
         "Áp dụng cho cả email timesheet lẫn email nghỉ phép.")
@@ -2430,12 +2436,12 @@ async def cmd_reset_mailts(update: Update,
         state["conversation"] = None
         state_mod.save_state(state)
         audit("CMD_RESETMAILTS", "hủy review email timesheet")
-        await update.effective_message.reply_text(
+        await _say(update, 
             "✅ Đã hủy gửi email timesheet. KHÔNG có mail nào được gửi.\n"
             "Bản nháp vẫn còn — sửa timesheet rồi /weeklyrun lại, hoặc "
             "/checkdraft xem lại.")
     else:
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Không có email timesheet nào đang chờ gửi.")
 
 
@@ -2453,11 +2459,11 @@ async def cmd_reset_mail(update: Update,
     state_mod.save_state(state)
     audit("CMD_RESETMAIL", f"was_composing={was_composing}")
     if was_composing:
-        await update.effective_message.reply_text(
+        await _say(update, 
             "✅ Đã thoát chế độ soạn email. Xóa email nháp tạm.\n"
             "Giờ nhắn gì cũng được (ghi chú timesheet, lệnh khác...).")
     else:
-        await update.effective_message.reply_text(
+        await _say(update, 
             "Không có email nháp nào đang chờ. Mọi thứ bình thường.")
 
 
@@ -2471,7 +2477,7 @@ async def cmd_compose_mail(update: Update,
     state = state_mod.load_state()
     state["conversation"] = {"awaiting": "compose_ai_request"}
     state_mod.save_state(state)
-    await update.effective_message.reply_text(
+    await _say(update, 
         f"✍️ Soạn email cho sếp {config.get('boss_name')} (dùng AI).\n\n"
         "Bro muốn gửi nội dung gì? Nhắn tóm tắt tiếng Việt, ví dụ:\n"
         "• \"xin nghỉ ngày 10/9 và 18 Sept\"\n"
@@ -2489,7 +2495,7 @@ async def cmd_compose_manual(update: Update,
     state = state_mod.load_state()
     state["conversation"] = {"awaiting": "compose_manual_input"}
     state_mod.save_state(state)
-    await update.effective_message.reply_text(
+    await _say(update, 
         "✍️ Soạn email nhập tay (KHÔNG dùng AI).\n\n"
         "Nhập theo dạng:\n"
         "Subject: <tiêu đề>\n"
@@ -2515,7 +2521,7 @@ async def cmd_clear_notes(update: Update,
         n = sum(1 for l in notes_store.NOTES_FILE.read_text(
             encoding="utf-8").splitlines() if l.strip())
     if n == 0:
-        await update.effective_message.reply_text(
+        await _say(update, 
             "notes.jsonl đã trống rồi bro, không cần xóa.")
         return
     n_parsed = len(daily_store.load_all())
@@ -2541,11 +2547,11 @@ async def cmd_check_excel(update: Update,
     try:
         errors = excel_writer.validate_excel_file(month, config)
     except Exception as e:
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Lỗi đọc file Excel: {type(e).__name__}: {e}")
         return
     if not errors:
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"✅ File Excel tháng {month.strftime('%m/%Y')} hợp lệ — "
             "sẵn sàng gửi mail bro!")
     else:
@@ -2563,7 +2569,7 @@ async def cmd_weekly_run(update: Update,
     Tương đương chạy weekly_run.py từ tay. Không cần AI nếu parsed_days đã đủ."""
     if not is_allowed(update): return
     audit("CMD_WEEKLYRUN", "manual trigger")
-    await update.effective_message.reply_text(
+    await _say(update, 
         "Đang chốt tuần (soạn bản nháp — CHƯA gửi sếp)…")
     try:
         import weekly_run as _wr
@@ -2571,7 +2577,7 @@ async def cmd_weekly_run(update: Update,
         status = result.get("status")
 
         if status == "sent":
-            await update.effective_message.reply_text(
+            await _say(update, 
                 f"✅ Gửi xong! {result.get('message','')}")
 
         elif status == "need_info":
@@ -2585,7 +2591,7 @@ async def cmd_weekly_run(update: Update,
         elif status == "ready":
             # Báo cáo RÚT GỌN dạng control total (không in preview dài)
             summary = _summarize_draft_result(result, config)
-            await update.effective_message.reply_text(summary)
+            await _say(update, summary)
 
         elif status == "already_sent":
             _sd = result.get("send_day", "")
@@ -2598,14 +2604,14 @@ async def cmd_weekly_run(update: Update,
             else:
                 _msg = (f"Timesheet thứ 6 {_sd[8:10]}/{_sd[5:7]} đã gửi rồi bro. Sửa & gởi "
                         "lại: /edittimesheet → /resend.")
-            await update.effective_message.reply_text(_msg)
+            await _say(update, _msg)
 
         else:
-            await update.effective_message.reply_text(
+            await _say(update, 
                 f"Trạng thái: {status}")
     except Exception as e:
         log.exception("cmd_weekly_run lỗi")
-        await update.effective_message.reply_text(
+        await _say(update, 
             f"Lỗi weekly run: {type(e).__name__}: {e}\nXem log để biết thêm.")
 
 
@@ -2663,7 +2669,7 @@ async def handle_other(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         return
     audit("NON_TEXT_MESSAGE", "")
-    await update.effective_message.reply_text(
+    await _say(update, 
         "Mình chỉ nhận tin nhắn chữ thôi bro, gõ giúp mình nha.")
 
 
@@ -2689,11 +2695,11 @@ async def _notify_holiday_missing(year: int):
     async with Bot(config.telegram_bot_token) as bot:
         await bot.send_message(
             chat_id=config.telegram_allowed_chat_id,
-            text=f"Lưu ý bro: đã giữa tháng 12 mà mình vẫn chưa lấy "
+            text=_xung_ho(f"Lưu ý bro: đã giữa tháng 12 mà mình vẫn chưa lấy "
                 f"được lịch nghỉ lễ Singapore năm {year} từ MOM (chắc "
                 "họ chưa đăng, hoặc mạng trục trặc). Mình sẽ tự thử "
                 "lại mỗi lần khởi động. Nếu qua Tết mà vẫn chưa có, "
-                "nhắn Claude kiểm tra giúp bro nhé.")
+                "nhắn Claude kiểm tra giúp bro nhé."))
 
 
 _APP = None                      # Application đang chạy (để tự tắt sau khi gửi)
@@ -2716,7 +2722,7 @@ async def _after_weekly_sent(update, result: dict) -> None:
         return
     app = _APP
     at = datetime.now() + timedelta(seconds=AUTO_STOP_AFTER_SEND_SEC)
-    await update.effective_message.reply_text(
+    await _say(update, 
         f"✅ Timesheet tuần {this_fri:%d/%m} đã gửi thành công.\n"
         "🎉 Chúc bro một cuối tuần vui vẻ bên gia đình!\n"
         f"🤖 Bot tự tắt lúc {at:%H:%M} sau khi gửi timesheet tuần {this_fri:%d/%m} "

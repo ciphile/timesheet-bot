@@ -32,7 +32,7 @@ import pipeline
 import sg_holidays
 import state as state_mod
 import validator
-from config_loader import DATA_DIR
+from config_loader import DATA_DIR, xung_ho
 from log_setup import get_logger
 from audit_log import audit
 
@@ -982,7 +982,7 @@ def notify(text: str, config, files=None) -> None:
     async def _send():
         async with Bot(config.telegram_bot_token) as bot:
             chat_id = config.telegram_allowed_chat_id
-            for part in chunk_text(text):
+            for part in chunk_text(xung_ho(text)):   # (13-Oct) "bro" theo settings
                 await bot.send_message(chat_id=chat_id, text=part)
             for path in files or []:
                 with open(path, "rb") as f:

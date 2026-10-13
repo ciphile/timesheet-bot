@@ -11,6 +11,7 @@ Chạy thử trực tiếp (self-test):
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -56,6 +57,35 @@ def personal(key: str, default: str = ""):
             _PERSONAL_CACHE = {}
     v = _PERSONAL_CACHE.get(key)
     return default if v in (None, "") else v
+
+
+_BRO_RE = re.compile(r"\b(?:bro|Bro|BRO)\b")
+
+
+def xung_ho(text):
+    """(13-Oct-2026) Đổi chữ "bro" trong tin nhắn bot gửi người dùng thành cách
+    gọi người dùng chọn trong settings.json: "bot_goi_ban_la" (vd "bạn", "chị",
+    "anh", tên riêng). Thiếu dòng / để trống / "bro" / lỗi bất kỳ → trả NGUYÊN
+    VĂN (bot chạy y như cũ). Chỉ đổi nguyên chữ "bro" (không đụng "brother",
+    "browser"…); "Bro" đầu câu → viết hoa chữ đầu; "BRO" → viết hoa cả chữ."""
+    try:
+        if not isinstance(text, str) or "ro" not in text.lower():
+            return text
+        word = personal("bot_goi_ban_la", "bro")
+        word = word.strip() if isinstance(word, str) else ""
+        if not word or word.lower() == "bro":
+            return text
+
+        def _sub(m):
+            w = m.group(0)
+            if w == "BRO":
+                return word.upper()
+            if w == "Bro":
+                return word[:1].upper() + word[1:]
+            return word
+        return _BRO_RE.sub(_sub, text)
+    except Exception:  # noqa: BLE001 — đổi chữ lỗi thì gửi nguyên văn, không chặn tin
+        return text
 
 # Giá trị placeholder trong secrets.env — còn sót nghĩa là chưa điền
 PLACEHOLDER = "chua_co"
