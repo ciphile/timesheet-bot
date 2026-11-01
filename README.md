@@ -714,6 +714,13 @@ Ví dụ thật: hàng 5 ticket ở trên cao khoảng 5–6 dòng chữ; hàng 
 
 **Lưu ý:** việc xuống dòng **chỉ có trong file Excel**. Dữ liệu bot lưu, `/summary` và email xem trước vẫn hiện mô tả **1 dòng** như bạn gõ; khi bot đọc lại Excel (gởi lại, sửa, tính phép) vẫn ra đúng câu gốc.
 
+> **Cập nhật 02-Nov-2026 — file CUỐI THÁNG gọn dòng trống:**
+> - File gửi sếp **giữa tháng** vẫn dư dòng trống như cũ (không đổi).
+> - File có **ngày làm việc cuối tháng** (thứ 2–6 cuối cùng của tháng) = file đủ cả tháng → bot **xóa dòng trống thừa, chừa 3 dòng** trên dòng `Full Summary`, sửa công thức tổng cho khớp. Không có dòng trống (hoặc ≤ 3) → không làm gì.
+> - Xét theo **dữ liệu trong file**, không theo ngày gửi → gửi trễ (thứ 7, CN, tuần sau) vẫn đúng. Tuần vắt 2 tháng: vd 30/11/2026 là thứ 2 → file gửi 27/11 **không** cắt; file tháng 11 gửi 04/12 (đã có 30/11) **cắt**.
+> - Chỉ cắt ở **bản gửi sếp** (cả `/resend`) và **file Excel xem trước**. File làm việc `output\LiveReport_YYYY-MM.xlsx` giữ nguyên → sửa / thêm task sau khi gửi vẫn đủ chỗ; nhiều task hơn số dòng thì bot tự chèn thêm dòng như cũ.
+> - An toàn: bot cắt trên file tạm, kiểm lại từng ô + tổng giờ; lệch bất kỳ chỗ nào → gửi bản chưa cắt (như trước).
+
 ---
 
 ## 5. Tối thứ 6 — gửi timesheet cho sếp
@@ -881,6 +888,7 @@ Ngày **đã gửi** → bot sửa **cả file Excel** (có backup bản cũ) �
 
 - Bị chặn vì cảnh báo (vd vượt số ngày nghỉ bù) → sửa rồi `/resend` lại, hoặc nhắn `vẫn gởi` / gõ `/forcesendmail` để bỏ qua cảnh báo.
 - ⚠️ **Không** dùng `/sendmail` hay `/createdraft` cho tuần đã gửi.
+- **(02-Nov-2026)** Sửa ngày đã gửi rồi **không** `/resend` mà để mail tuần kế tiếp gửi luôn: nếu mail tuần đó **có kèm file tháng vừa sửa** thì bản sửa đã tới sếp → `/status` **không còn nhắc** "Đã sửa tháng … nhưng CHƯA gởi lại" cho tháng đó. Tháng sửa không có trong mail tuần → vẫn nhắc.
 
 ---
 
