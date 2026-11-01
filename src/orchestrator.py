@@ -261,6 +261,11 @@ def build_preview_files(draft: dict, config) -> list:
         excel_writer.write_month_entries(
             month, _merged_month_entries(month_key, draft, config),
             config, path_override=target)
+        # (02-Nov) xem trước y như bản gửi: file cuối tháng cắt dòng trống
+        try:
+            excel_writer.trim_month_end_safe(target)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Xem trước: cắt dòng trống lỗi (%s) — bỏ qua.", e)
         files.append(target)
     return files
 
@@ -638,6 +643,13 @@ def finalize_and_send(config, state: dict, force: bool = False,
     # nguyên (vì mark_sent chưa chạy) nên lệnh "ok" lần 2 sẽ GỬI MAIL
     # LẦN NỮA cho sếp. Mark trước thì draft bị xóa ngay, "ok" lần 2
     # (nếu có) sẽ báo "chưa có bản nháp" thay vì gửi trùng.
+    # (02-Nov-2026) Tháng đã sửa (đang chờ 'gởi lại') mà mail tuần NÀY có kèm
+    # file tháng đó → file gửi đi đã chứa bản sửa (đọc từ file làm việc) → bỏ
+    # nhắc 'CHƯA gởi lại' cho tháng đó. Tháng sửa KHÔNG kèm trong mail → giữ nhắc.
+    _edited = state.get("last_edited_months") or []
+    if _edited:
+        _left = [m for m in _edited if m not in months_entries]
+        state["last_edited_months"] = _left or None
     state_mod.mark_sent(state, send_day)
 
     # Việc phụ — CHỈ để tối ưu cho lần sau ("giống tuần trước"), không

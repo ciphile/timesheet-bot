@@ -779,6 +779,140 @@ def format_delivery_file(path: Path, author: str = None) -> int:
     return changed
 
 
+# ---------------------------------------------------------------------
+# File CUỐI THÁNG: cắt dòng trống thừa (02-Nov-2026)
+# ---------------------------------------------------------------------
+MONTH_END_KEEP_BLANK = 3      # số dòng trống chừa lại trên dòng Full Summary
+
+
+def last_workday_of_month(any_day: date) -> date:
+    """Ngày làm việc (thứ 2–thứ 6) cuối cùng của tháng chứa any_day.
+    Lễ rơi vào ngày đó vẫn có dòng 'Public Holiday' (pipeline tự điền) nên
+    vẫn dùng làm mốc được."""
+    from datetime import timedelta
+    nxt = date(any_day.year + (any_day.month == 12),
+               any_day.month % 12 + 1, 1)
+    d = nxt - timedelta(days=1)
+    while d.weekday() >= 5:                       # 5 = thứ 7, 6 = chủ nhật
+        d -= timedelta(days=1)
+    return d
+
+
+def _snapshot(ws, last_row: int) -> list:
+    return [[ws.cell(row=r, column=c).value for c in range(1, 8)]
+            for r in range(1, last_row + 1)]
+
+
+def trim_month_end_blank_rows(path, keep: int = MONTH_END_KEEP_BLANK) -> int:
+    """File ĐÃ ĐỦ CẢ THÁNG (có dòng ngày làm việc cuối tháng) → xóa dòng trống
+    thừa giữa dữ liệu và 'Full Summary', chừa `keep` dòng. Trả số dòng đã xóa
+    (0 = không làm gì: chưa đủ tháng / dòng trống ≤ keep / bất thường).
+    An toàn: làm trên file tạm, đọc lại kiểm dữ liệu + tổng giờ khớp từng ô
+    rồi mới thay file thật; sai bất kỳ chỗ nào → giữ nguyên file cũ."""
+    import os
+    import tempfile
+    path = Path(path)
+    wb = openpyxl.load_workbook(path)
+    ws = wb.active
+    summary = _find_summary_row(ws)
+    last_used, dates = 0, set()
+    for r in range(FIRST_DATA_ROW, summary):
+        vals = [ws.cell(row=r, column=c).value for c in range(1, 8)]
+        if any(v not in (None, "") for v in vals):
+            last_used = r
+        d = vals[2]
+        if isinstance(d, datetime):
+            dates.add(d.date())
+        elif isinstance(d, date):
+            dates.add(d)
+    if not last_used or not dates:
+        return 0
+    month_days = {(d.year, d.month) for d in dates}
+    if len(month_days) != 1:
+        return 0
+    lw = last_workday_of_month(next(iter(dates)))
+    if lw not in dates:                            # chưa đủ tháng → giữ như cũ
+        return 0
+    blank = summary - 1 - last_used
+    n_del = blank - keep
+    if n_del <= 0:
+        return 0
+    del_start = last_used + keep + 1               # dòng trống đầu tiên bị xóa
+    # merge nằm TRONG vùng xóa → bất thường, không đụng
+    merges = list(ws.merged_cells.ranges)
+    if any(m.max_row >= del_start and m.min_row < del_start + n_del
+           for m in merges):
+        return 0
+    before = _snapshot(ws, last_used)
+    total_before = sum(float(v[6]) for v in before[FIRST_DATA_ROW - 1:]
+                       if isinstance(v[6], (int, float)))
+    below = [str(m) for m in merges if m.min_row >= del_start + n_del]
+    for ref in below:
+        ws.unmerge_cells(ref)
+    heights = {r: ws.row_dimensions[r].height
+               for r in range(del_start, ws.max_row + 1)}
+    max_row_before = ws.max_row
+    ws.delete_rows(del_start, n_del)
+    # openpyxl không dời chiều cao dòng / merge → tự dời
+    for r in range(del_start, max_row_before + 1):
+        src_h = heights.get(r + n_del)
+        ws.row_dimensions[r].height = src_h
+    for ref in below:
+        from openpyxl.utils.cell import range_boundaries
+        c1, r1, c2, r2 = range_boundaries(ref)
+        ws.merge_cells(start_row=r1 - n_del, start_column=c1,
+                       end_row=r2 - n_del, end_column=c2)
+    new_summary = summary - n_del
+    ws.cell(row=new_summary, column=7).value = (
+        f"=SUM(G{FIRST_DATA_ROW}:G{new_summary - 1})")
+
+    fd, tmp = tempfile.mkstemp(suffix=".xlsx", dir=str(path.parent))
+    os.close(fd)
+    try:
+        wb.save(tmp)
+        # ── kiểm lại trên file tạm ──
+        ws2 = openpyxl.load_workbook(tmp).active
+        ok = (_find_summary_row(ws2) == new_summary
+              and ws2.cell(row=new_summary, column=2).value == SUMMARY_LABEL
+              and _snapshot(ws2, last_used) == before
+              and all(ws2.cell(row=r, column=c).value in (None, "")
+                      for r in range(last_used + 1, new_summary)
+                      for c in range(1, 8))
+              and new_summary - 1 - last_used == keep
+              and ws2.cell(row=new_summary, column=7).value
+              == f"=SUM(G{FIRST_DATA_ROW}:G{new_summary - 1})")
+        total_after = sum(
+            float(ws2.cell(row=r, column=7).value)
+            for r in range(FIRST_DATA_ROW, new_summary)
+            if isinstance(ws2.cell(row=r, column=7).value, (int, float)))
+        if not ok or abs(total_after - total_before) > 1e-9:
+            log.warning("Cắt dòng trống cuối tháng: kiểm lại KHÔNG khớp — "
+                        "giữ file chưa cắt (%s).", path.name)
+            return 0
+        os.replace(tmp, path)
+        tmp = None
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.remove(tmp)
+    _clean_app_props(path)
+    log.info("File cuối tháng %s: xóa %d dòng trống, chừa %d.",
+             path.name, n_del, keep)
+    audit("EXCEL_TRIM_MONTH_END", f"{path.name}: -{n_del} dòng trống")
+    return n_del
+
+
+def trim_month_end_safe(path) -> int:
+    """Gọi trim_month_end_blank_rows, lỗi bất ngờ → bỏ qua (file giữ nguyên,
+    vẫn gửi được, chỉ là còn dòng trống như trước)."""
+    try:
+        return trim_month_end_blank_rows(path)
+    except PermissionError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.warning("Cắt dòng trống cuối tháng lỗi (%s) — giữ nguyên file.", e)
+        return 0
+
+
 def make_delivery_copy(month: date, send_day: date, config) -> Path:
     """Tạo bản giao sếp (copy file làm việc, đặt tên chuẩn).
     Trả về đường dẫn bản giao trong output\\."""
@@ -810,6 +944,13 @@ def make_delivery_copy(month: date, send_day: date, config) -> Path:
             "trong Excel. Đóng lại rồi nhắn 'ok' lần nữa giúp mình.")
     except Exception as e:  # noqa: BLE001
         log.warning("Định dạng xuống dòng bản giao lỗi (%s) — gửi bản 1 dòng.", e)
+    # File cuối tháng (đã có ngày làm việc cuối tháng) → cắt dòng trống thừa
+    try:
+        trim_month_end_safe(dst)
+    except PermissionError:
+        raise ExcelWriterError(
+            f"Không cắt dòng trống được ở bản giao {dst.name} — file này đang "
+            "MỞ trong Excel. Đóng lại rồi nhắn 'ok' lần nữa giúp mình.")
     log.info("Bản giao sếp: %s", dst.name)
     audit("EXCEL_DELIVERY_COPY", dst.name)
     return dst
