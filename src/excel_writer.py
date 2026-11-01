@@ -643,15 +643,9 @@ def validate_excel_file(month: date, config) -> list[str]:
                 errors.append(
                     f"Dòng {r} ({d}): cột F (Description) trống — "
                     f"task '{task}' bắt buộc có ticket/mô tả")
-            if desc_const and desc and desc != desc_const:
-                # NP task: desc phải đúng constant
-                import re as _re
-                if (project and
-                        _re.search(r'PACSNP-', project, _re.IGNORECASE)):
-                    if task in ("Coding/UT", "Investigation/Assessment"):
-                        errors.append(
-                            f"Dòng {r} ({d}): NP task cột F phải là "
-                            f"'{desc_const}', không phải '{desc}'")
+            # (26-Oct-2026, luật mới) NP task: cột F mặc định = desc_const;
+            # người dùng GHI RÕ "description …" thì cột F khác constant là HỢP LỆ →
+            # không còn báo lỗi "NP task cột F phải là …" (trước đây chặn gửi mail).
 
         # 7. Cột G — hours
         hours_val = ws.cell(row=r, column=7).value

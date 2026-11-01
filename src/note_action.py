@@ -254,6 +254,8 @@ def parse_actions(text: str, config,
     actions = _guard_explicit_dates(normalized, actions, raw, today)
     _guard_day_count(raw, today, span_res, actions)
     warn_bare_prefixes(raw, actions)
+    lock_explicit_description(raw, actions)       # 26-Oct: mô tả ghi rõ → cột F
+    warn_uat_no_ticket(actions)
     return actions, False
 
 
@@ -315,6 +317,196 @@ def keep_full_description(raw: str, actions: list, force: bool = False) -> None:
         a0.warning = ((a0.warning + " ") if a0.warning else "") + (
             "AI chép nhầm ngày dạng '01/09/2026 (thứ ...)' vào mô tả — mình dùng "
             "lại NGUYÊN VĂN bro gõ cho cột F.")
+
+
+# ── Mô tả GHI RÕ (thêm 26-Oct) ───────────────────────────────────────
+# "… description PACSNP-8528" / "mô tả là …" / "desc: …" → phần SAU chữ đó là
+# cột F, BẮT BUỘC (mọi task, cả ghi mới lẫn sửa ngày). Trước đây luật NP lúc ghi
+# gom MỌI ticket PACSNP sang cột D và thay cột F bằng constant → ticket mô tả của
+# NP UAT Support (cũng PACSNP) chạy nhầm sang cột D; xem trước một đằng, ghi một nẻo.
+_DESC_MARK_RE = _re_mod.compile(
+    r"(?i)(?:^|[\s,;|(])(?:mô\s*tả|description|desc)\b\s*(?:là\b|:|=)?\s*")
+_DESC_TRAIL_HOURS_RE = _re_mod.compile(
+    r"[\s,;.]*\b\d+(?:[.,]\d+)?\s*(?:h|giờ|tiếng)\s*$", _re_mod.I)
+_DESC_LOCK_TYPES = (ADD_DAY, ADD_TASK, REPLACE_DAY, MODIFY_TASK)
+# "description ticket number pacsnp-8528" → chữ đệm "ticket number" trước MÃ ticket bỏ đi
+_DESC_FILLER_RE = _re_mod.compile(
+    r"(?i)^(?:số\s+)?(?:ticket|jira)(?:\s+(?:number|no\.?|num|số))?\s*(?:là|:|=)?\s+")
+
+
+def _flat(text: str) -> str:
+    """So chữ không phân biệt hoa/thường, khoảng trắng, dấu gạch."""
+    return _re_mod.sub(r"[\s\-]", "", text or "").casefold()
+
+
+def _find_desc_mark(raw: str):
+    """Tìm chữ mốc mô tả. "description"/"desc" (tiếng Anh) → luôn tính.
+    "mô tả" → chỉ tính khi kèm "là/:/=", hoặc đứng ngay sau dấu phẩy / đầu câu /
+    1 mã ticket ("PACSNP-7660 mô tả …") — tránh bắt nhầm câu thường như
+    "viết tài liệu mô tả màn hình"."""
+    for m in _DESC_MARK_RE.finditer(raw):
+        word = m.group(0).strip(" \t,;|(").lower()
+        if not word.startswith("mô") or _re_mod.search(r"(?:là|:|=)\s*$", m.group(0)):
+            return m
+        head = raw[:m.start() + (1 if raw[m.start():m.start() + 1] in ",;|(" else 0)].rstrip()
+        if not head or head[-1] in ",;|(:":
+            return m
+        last = head.split()[-1]
+        if _tr.extract_tickets_from_note(last):
+            return m
+    return None
+
+
+def _drop_ticket(field: str, tk: str) -> str:
+    """Bỏ ticket `tk` khỏi 1 ô dạng "A, B, C" (so không phân biệt gạch/hoa
+    thường). Chỉ bỏ khi ticket là NGUYÊN 1 phần ngăn bằng , ; | — không cắt
+    chữ giữa tên dự án. Không bỏ được / ô sẽ trống → trả nguyên."""
+    parts = [x for x in _re_mod.split(r"\s*[,;|]\s*", field or "") if x.strip()]
+    keep = [x for x in parts if _tkey(x) != _tkey(tk)]
+    if len(keep) == len(parts) or not keep:
+        return field
+    return ", ".join(keep)
+
+
+def _keys(text: str) -> set:
+    return {_tkey(x) for x in _tr.extract_tickets_from_note(text or "")}
+
+
+def lock_explicit_description(raw: str, actions: list) -> None:
+    """Câu có chữ "description / desc / mô tả" (kèm "là", ":" hay không) →
+    phần SAU chữ đó là MÔ TẢ (cột F), BẮT BUỘC — MỌI task:
+      • ticket CHỈ có sau chữ đó mà AI lỡ đặt ở cột D → chuyển về cột F
+      • cột F chưa có NGUYÊN VĂN phần sau chữ đó (trống / constant NP / AI viết
+        khác) → điền phần đó; ticket khác đang ở cột F vẫn giữ (đứng trước)
+      • đánh dấu "_desc_lock" → lúc ghi, luật NP KHÔNG gom ticket sang cột D
+        và KHÔNG thay cột F bằng constant
+    RIÊNG task NP (cột D có PACSNP): ticket PACSNP ghi TRƯỚC chữ đó (không có
+    sau) mà lỡ ở cột F → chuyển về cột D (ticket dự án NP). NP Coding/UT,
+    Investigation/Assessment: không ghi chữ mốc → cột F = constant (như cũ);
+    có ghi → cột F = đúng chữ đã gõ (hợp lệ — luật 26-Oct).
+    CHỈ áp khi câu có 1 chữ mốc + 1 LOẠI task (không tính task nghỉ), mỗi ngày
+    1 dòng task đó, và AI ra cùng 1 nội dung cho mọi ngày — câu nhiều mốc / nhiều
+    task / mỗi ngày mô tả khác nhau thì không biết mô tả của dòng nào → bỏ qua.
+    Lỗi bất ngờ → bỏ qua (chạy như cũ)."""
+    try:
+        m = _find_desc_mark(raw or "")
+        if not m or _find_desc_mark(raw[m.end():]):      # 0 hoặc ≥ 2 chữ mốc → như cũ
+            return
+        seg = _DESC_TRAIL_HOURS_RE.sub("", raw[m.end():].strip())
+        seg = seg.strip().strip(",;.").strip().strip('"“”\'').strip()
+        f = _DESC_FILLER_RE.match(seg)
+        if f:
+            t0 = _tr.TICKET_PART_RE.search(seg[f.end():])
+            if t0 and t0.start() == 0:
+                seg = seg[f.end():]
+        if not seg:
+            return
+        acts = [a for a in actions if a.type in _DESC_LOCK_TYPES and a.tasks]
+        all_tasks = [t for a in acts for t in a.tasks]
+        tasks = [t for t in all_tasks if t.get("task") not in _ticketless()]
+        if not tasks or len({(t.get("task"), t.get("project"), t.get("description"))
+                             for t in tasks}) != 1:
+            return
+        if any(sum(t.get("task") not in _ticketless() for t in a.tasks) > 1 for a in acts):
+            return                      # 1 ngày có ≥ 2 dòng cùng loại → không biết dòng nào
+        before = _keys(raw[:m.start()])
+        seg_all = _tr.extract_tickets_from_note(seg)
+        seg_keys = {_tkey(x) for x in seg_all}
+        seg_tks = [x for x in seg_all if _tkey(x) not in before]
+        if len(all_tasks) == len(tasks):
+            seg_fill = _tr.normalize_ticket_text(seg)
+        else:   # câu còn task nghỉ → phần sau có thể lẫn câu khác → chỉ lấy ticket
+            seg_fill = ", ".join(_tr.normalize_ticket_text(x) for x in seg_tks)
+        moved_f, moved_d = [], []
+        for t in tasks:
+            t["_desc_lock"] = True
+            proj = t.get("project") or ""
+            desc = (t.get("description") or "").strip()
+            # 1) ticket CHỈ có sau chữ "description" mà nằm ở cột D → bỏ khỏi D
+            for tk in seg_tks:
+                new_proj = _drop_ticket(proj, tk)
+                if new_proj != proj:
+                    proj = new_proj
+                    if tk not in moved_f:
+                        moved_f.append(tk)
+            is_np = (t.get("task") in _NP_TASKS and "PACSNP" in _tkey(proj))
+
+            def _to_d(tk):
+                nonlocal proj
+                if _tkey(tk) not in _keys(proj):
+                    proj = _put_ticket(proj, _tr.normalize_ticket_text(tk))
+                if tk not in moved_d:
+                    moved_d.append(tk)
+
+            # 2) NP: PACSNP ghi TRƯỚC chữ "description" (không có sau) ở cột F → D
+            if is_np:
+                for tk in _tr.extract_tickets_from_note(desc):
+                    k = _tkey(tk)
+                    if k.startswith("PACSNP") and k in before and k not in seg_keys:
+                        nd = _drop_ticket(desc, tk)
+                        if nd != desc:
+                            desc = nd
+                            _to_d(tk)
+            # 3) cột F phải CÓ phần sau chữ "description" (nguyên văn, chỉ viết
+            #    hoa mã ticket). Đã có → giữ bản AI; chưa có → điền, giữ ticket khác.
+            is_const = (desc.lower() == NP_DESC_CONST.lower()
+                        and NP_DESC_CONST.lower() not in seg.lower())
+            # (cột F lẫn chữ mốc "description/mô tả" + phần TRƯỚC mốc → cũng điền lại)
+            extra = _flat(desc).replace(_flat(seg_fill), "", 1)
+            if seg_fill and (not desc or is_const or _flat(seg_fill) not in _flat(desc)
+                             or _re_mod.search(r"desc|môtả", extra)):
+                keep = []
+                if not is_const:
+                    for tk in _tr.extract_tickets_from_note(desc):
+                        k = _tkey(tk)
+                        if k in seg_keys or k in {_tkey(x) for x in keep}:
+                            continue
+                        if is_np and k.startswith("PACSNP") and k in before:
+                            _to_d(tk)
+                            continue
+                        keep.append(_tr.normalize_ticket_text(tk))
+                desc = ", ".join(keep + [seg_fill])
+            t["project"] = proj
+            t["description"] = desc
+        a0 = acts[0]
+        warn = []
+        if moved_f:
+            warn.append("Ticket ghi SAU chữ 'description/mô tả' → mình đặt vào cột F "
+                        "(mô tả): " + ", ".join(moved_f) + ".")
+        if moved_d:
+            warn.append("NP: ticket ghi TRƯỚC chữ 'description/mô tả' → mình đặt vào "
+                        "cột D (project): " + ", ".join(moved_d) + ".")
+        if warn:
+            a0.warning = ((a0.warning + " ") if a0.warning else "") + " ".join(warn)
+    except Exception as e:  # noqa: BLE001
+        log.warning("lock_explicit_description lỗi (%s) — bỏ qua", e)
+
+
+def warn_uat_no_ticket(actions: list) -> None:
+    """CHỈ NP UAT Support (cột D có PACSNP): cột F BẮT BUỘC có ticket (validator
+    kiểm lúc soạn nháp) → bản SẼ LƯU chưa có ticket ở cột F thì cảnh báo NGAY
+    lúc nhắn + hỏi 'ok' (cả ghi mới), khỏi đợi tới thứ 6 mới bị báo thiếu."""
+    try:
+        for a in actions:
+            if a.type not in _DESC_LOCK_TYPES:
+                continue
+            for t in a.tasks or []:
+                if t.get("task") != _tr.TASK_UAT_SUPPORT:
+                    continue
+                e = _norm_task(dict(t), date.today())
+                if "PACSNP" not in _tkey(e["project"]):
+                    continue
+                d = e["description"] or ""
+                if validator.TICKET_RE.search(d) or _tr.ALL_TICKET_RE.search(d):
+                    continue
+                a.needs_confirm = True       # hiện cảnh báo + hỏi 'ok' (kể cả ghi mới)
+                a.warning = ((a.warning + " ") if a.warning else "") + (
+                    "⚠️ NP UAT Support cần SỐ TICKET ở cột F (mô tả) — chưa thấy. Nhắn "
+                    "lại kèm 'description <ticket>' (vd 'description PACSNP-8528'), "
+                    "không thì lúc soạn nháp sẽ bị báo thiếu ticket.")
+                break
+    except Exception as e:  # noqa: BLE001
+        log.warning("warn_uat_no_ticket lỗi (%s) — bỏ qua", e)
 
 
 # ── Task DỰ ÁN / WR (thêm 25-Sep) ─────────────────────────────────────
@@ -689,6 +881,8 @@ def actions_from_rule_parser(text: str, today: date = None):
         acts = [Action(type=_atype, day=d, tasks=[dict(x) for x in _multi]) for d in _mdays]
         ensure_all_tickets(norm, acts)
         warn_bare_prefixes(raw, acts)
+        lock_explicit_description(raw, acts)      # 26-Oct
+        warn_uat_no_ticket(acts)
         for a in acts:
             a.warning = ((a.warning + " ") if a.warning else "") + (
                 "⚠️ AI đang lỗi — đây là bóc tách bằng RULE (kém thông minh hơn "
@@ -719,6 +913,8 @@ def actions_from_rule_parser(text: str, today: date = None):
         keep_full_description(text.strip(), acts, force=True)   # cột F = nguyên văn
         apply_project_marker(text.strip(), acts)                # task DỰ ÁN / WR
     warn_bare_prefixes(raw, acts)
+    lock_explicit_description(raw, acts)          # 26-Oct
+    warn_uat_no_ticket(acts)
     for a in acts:
         a.warning = ((a.warning + " ") if a.warning else "") + (
             "⚠️ AI đang lỗi — đây là bóc tách bằng RULE (kém thông minh hơn "
@@ -1156,7 +1352,12 @@ def _norm_task(t: dict, day: date) -> dict:
     # PACSNP ở BẤT KỲ cột nào → cột D = mọi PACSNP gom 1 dòng (viết hoa, bỏ
     # trùng), cột F = constant NP. (Sửa 25-Sep: trước chỉ chạy khi PACSNP ĐÃ
     # ở cột D, và Investigation/Assessment + UAT không lấy được constant.)
-    if task in _NP_TASKS:
+    # (26-Oct) NP UAT Support (cột D đã có PACSNP): cột F BẮT BUỘC là ticket
+    # (có thể cũng PACSNP) → KHÔNG gom sang cột D, KHÔNG thay constant. Mô tả
+    # ghi rõ ("description / mô tả …", _desc_lock) → cũng không đụng. Ghi ĐÚNG
+    # như bản xem trước. Cột D chưa có PACSNP → như cũ.
+    if (task in _NP_TASKS and not t.get("_desc_lock")
+            and not (task == _tr.TASK_UAT_SUPPORT and "PACSNP" in project.upper())):
         import re as _re
         np_re = r"\bPACSNP-?\d{2,6}\b"
         found = (_re.findall(np_re, project, flags=_re.IGNORECASE)
@@ -1168,6 +1369,9 @@ def _norm_task(t: dict, day: date) -> dict:
                     seen.add(tk.upper()); tks.append(tk.upper())
             project = ", ".join(tks)
             desc = NP_DESC_CONST
+    # (26-Oct) NP UAT Support không nhắc mô tả (cột F trống) → constant như cũ
+    if (task == _tr.TASK_UAT_SUPPORT and not desc and "PACSNP" in project.upper()):
+        desc = NP_DESC_CONST
 
     return {
         "date": day.isoformat(),

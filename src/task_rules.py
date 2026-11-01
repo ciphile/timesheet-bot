@@ -692,16 +692,11 @@ def validate_entry(project: str, task_name: str,
                 f"NP task (PACSNP-) có cột E '{task_name}' không hợp lệ. "
                 f"Phải là: {', '.join(NP_TASK_NAMES_VALID)}"
             )
-        # NP constant "New product day 2 items" CHỈ áp dụng khi E = Coding/UT
-        # hoặc Investigation/Assessment (không phải UAT Support)
-        np_needs_const = task_name in ("Coding/UT", "Investigation/Assessment")
-        if np_needs_const:
-            if description and description != NP_DESC_CONST:
-                errors.append(
-                    f"NP task với '{task_name}' — cột F phải là "
-                    f"'{NP_DESC_CONST}', không phải '{description}'"
-                )
-            # Nếu trống → pipeline tự điền, không phải lỗi
+        # NP Coding/UT, Investigation/Assessment: cột F MẶC ĐỊNH = constant
+        # "New product day 2 items" (note_action tự đặt lúc ghi). (26-Oct-2026,
+        # luật mới) người dùng GHI RÕ "description …" → cột F = đúng chữ đó → HỢP
+        # LỆ, KHÔNG báo lỗi (trước đây báo "cột F phải là …" → chặn soạn nháp).
+        # Trống → pipeline tự điền, không phải lỗi.
         # UAT Support cho NP: cột F = ticket, không cần NP constant
 
     # 5. Description (cột F) bắt buộc
