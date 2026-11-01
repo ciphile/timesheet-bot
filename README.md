@@ -584,6 +584,14 @@ Các cột trong Excel: **D** = Project Name · **E** = Task Name · **F** = Des
 | `hôm nay làm NP assess cho pacsnp-7878, pacsnp-5890` | PACSNP-7878, PACSNP-5890 | Investigation/Assessment | New product day 2 items |
 | `hôm nay code NP pacsnp-7878, pacsnp-5890` | PACSNP-7878, PACSNP-5890 | Coding/UT | New product day 2 items |
 
+> **Cập nhật 26-Oct-2026 — NP UAT Support + chữ `description`:**
+> - **NP UAT Support** cần **số ticket ở cột F** (ticket này có thể cũng là PACSNP). Ghi ticket đó **sau chữ `description`**: ticket PACSNP ghi **trước** chữ `description` → cột D, ghi **sau** → cột F.
+>   Vd `hôm nay làm NP UAT support cho pacsnp-7660, pacsnp-7619, description pacsnp-8528` → D = `PACSNP-7660, PACSNP-7619` · E = `UAT Support` · F = `PACSNP-8528`.
+> - NP UAT Support không nhắc mô tả → cột F = `New product day 2 items` (mặc định như cũ), nhưng UAT bắt buộc có ticket nên bot **cảnh báo ngay và hỏi `ok`** (không đợi tới thứ 6 mới báo thiếu).
+> - **Mọi loại task:** câu có chữ `description` / `desc` / `mô tả` (có `là`, `:`, `=` hay không) → phần **sau** chữ đó luôn vào **cột F** — khi ghi mới, khi sửa ngày, khi AI lỗi (luật dự phòng) và khi `/edittimesheet`. Riêng `mô tả` không kèm `là`/`:` thì phải đứng sau dấu phẩy hoặc ngay sau 1 mã ticket (để câu thường như "viết tài liệu mô tả màn hình" không bị hiểu nhầm).
+> - **NP Coding/UT, NP Investigation/Assessment:** không nhắc mô tả → cột F = `New product day 2 items` (mặc định, như cũ). Có ghi `description …` → cột F = **đúng chữ bạn gõ**, hợp lệ (soạn nháp / gửi mail không báo lỗi).
+> - Câu có **2 chữ mốc trở lên**, nhiều loại task, hoặc mỗi ngày một mô tả khác nhau → bot giữ cách hiểu cũ — xem kỹ bản xem trước.
+
 #### ▶ DỰ ÁN / WR (work request)
 - **Từ khóa (mốc tên):** `dự án` · `project` · `WR`
 - **Cú pháp:** `<ngày> WR <TÊN DỰ ÁN>, <việc>, mô tả <MÔ TẢ>`
